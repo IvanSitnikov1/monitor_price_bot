@@ -1,6 +1,5 @@
 import asyncio
 import re
-import random
 
 from aiogram import F, types, Router
 from aiogram.filters import Command
@@ -10,7 +9,7 @@ from keyboards.reply import main_kb
 from keyboards.inline import get_products_keyboard, get_product_detail_keyboard
 from utils.states import AddPosition
 from utils.scraper import scrape_ozon_product
-from core.database import add_product, get_all_products, get_product_details, update_product_price
+from core.database import add_product, get_all_products, get_product_details
 
 
 main_router = Router()
@@ -132,54 +131,3 @@ async def back_to_list(callback: types.CallbackQuery):
         reply_markup=get_products_keyboard(products)
     )
     await callback.answer()
-
-
-# Обработчик кнопки "Обновить цены"
-@main_router.callback_query(F.data == "update_prices")
-async def update_prices(callback: types.CallbackQuery):
-    await callback.answer("Начинаю обновление цен...", show_alert=False)
-    await callback.message.edit_text("⏳ Обновляю цены, подождите...")
-
-    products = await get_all_products()
-
-    if not products:
-        await callback.message.edit_text("Список позиций пуст.")
-        return
-
-    updated_count = 0
-    failed_products = []
-
-    for product in products:
-        # Рандомная задержка 0-5 секунд
-        delay = random.uniform(0, 5)
-        await asyncio.sleep(delay)
-
-        product_name, price_str = await scrape_ozon_product(product['url'])
-
-        if product_name and price_str:
-            # Извлекаем число из строки цены
-            price_match = re.search(r'(\d+)', price_str)
-            if price_match:
-                price_int = int(price_match.group(1))
-                await update_product_price(product['id'], price_int)
-                updated_count += 1
-            else:
-                failed_products.append(product['name'])
-        else:
-            failed_products.append(product['name'])
-
-    # Формируем итоговое сообщение
-    result_text = f"✅ Обновление завершено!\n\n"
-    result_text += f"Обновлено: {updated_count} из {len(products)}\n"
-
-    if failed_products:
-        result_text += f"\n⚠️ Не удалось обновить:\n"
-        for name in failed_products:
-            result_text += f"- {name[:40]}...\n"
-
-    # Обновляем список
-    updated_products = await get_all_products()
-    await callback.message.edit_text(
-        result_text + "\n📋 Список отслеживаемых товаров:",
-        reply_markup=get_products_keyboard(updated_products)
-    )

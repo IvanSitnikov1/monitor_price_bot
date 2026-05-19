@@ -10,7 +10,7 @@ def get_products_keyboard(products: list[dict]) -> InlineKeyboardMarkup:
         products: Список товаров с полями id, name, current_price
 
     Returns:
-        InlineKeyboardMarkup с кнопками товаров и кнопкой обновления
+        InlineKeyboardMarkup с кнопками товаров
     """
     builder = InlineKeyboardBuilder()
 
@@ -22,11 +22,6 @@ def get_products_keyboard(products: list[dict]) -> InlineKeyboardMarkup:
         )
 
     builder.adjust(1)
-
-    # Добавляем кнопку обновления цен
-    builder.row(
-        InlineKeyboardButton(text="🔄 Обновить цены", callback_data="update_prices")
-    )
 
     return builder.as_markup()
 
