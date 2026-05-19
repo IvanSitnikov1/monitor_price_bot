@@ -1,0 +1,9 @@
+# Python-generated files
+__pycache__/
+.idea
+.env
+uv.lock
+
+# Virtual environments
+.venv
+.python-version
