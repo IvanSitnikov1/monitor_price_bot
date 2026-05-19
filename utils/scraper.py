@@ -1,14 +1,15 @@
 import asyncio
-import undetected_chromedriver as uc
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import json
+import re
+import time
+from pathlib import Path
+
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 
 async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
     """
-    Асинхронно парсит страницу товара на Ozon с помощью undetected-chromedriver.
+    Асинхронно парсит страницу товара на Ozon с помощью Playwright.
 
     Args:
         url: URL страницы товара.
@@ -16,54 +17,132 @@ async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
     Returns:
         Кортеж (название, цена) или (None, None) в случае ошибки.
     """
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _scrape_ozon_product_sync, url)
+    cookies_file = Path("ozon_cookies.json")
 
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+            ]
+        )
 
-def _scrape_ozon_product_sync(url: str) -> tuple[str | None, str | None]:
-    """
-    Синхронная функция для парсинга данных о товаре с Ozon.
-    """
-    options = uc.ChromeOptions()
-    options.add_argument("--no-proxy-server")
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36")
-    
-    # Эта опция пытается скрыть факт использования автоматизированного ПО
-    options.add_argument("--disable-blink-features=AutomationControlled")
+        context = await browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            locale='ru-RU',
+        )
 
-    driver = None
-    try:
-        driver = uc.Chrome(options=options, use_subprocess=False, version_main=147)
-        driver.get(url)
+        # Загружаем куки, если файл существует
+        if cookies_file.exists():
+            try:
+                cookies = _load_cookies(cookies_file)
+                await context.add_cookies(cookies)
+            except Exception as e:
+                print(f"Ошибка загрузки кук: {e}")
 
-        wait = WebDriverWait(driver, 20)
-        wait = WebDriverWait(driver, 20)
+        page = await context.new_page()
 
         try:
-            # Ждем загрузки основного контента, например, заголовка
-            wait.until(EC.visibility_of_element_located((By.TAG_NAME, "h1")))
-        except TimeoutException:
-            print("Не удалось дождаться заголовка h1, но страница все равно будет сохранена.")
+            await page.goto(url, timeout=30000)
 
-        # Сохраняем HTML-код страницы в файл для отладки
-        with open("ozon_page.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
+            # Проверяем наличие капчи (ждём до 30 секунд)
+            max_wait = 30
+            waited = 0
 
-        print("HTML-код страницы сохранен в файл ozon_page.html")
+            while waited < max_wait:
+                content = await page.content()
 
-        # Возвращаем заглушки
-        product_name = "Смотри ozon_page.html"
-        price = "Смотри ozon_page.html"
+                if "Доступ ограничен" in content or "captcha" in content.lower() or "challenge" in content.lower():
+                    await asyncio.sleep(2)
+                    waited += 2
+                else:
+                    break
 
-        driver.quit()
-        return product_name, price
+            if waited >= max_wait:
+                await browser.close()
+                return None, None
 
-    except Exception as e:
-        print(f"Общая ошибка при парсинге: {e}")
-        if driver:
-            driver.quit()
-        return "Доступ ограничен", "Цена не найдена"
+            # Ждем загрузки контента
+            try:
+                await page.wait_for_load_state('networkidle', timeout=15000)
+            except PlaywrightTimeoutError:
+                pass
+
+            await asyncio.sleep(2)
+
+            # Извлекаем название товара
+            product_name = None
+            try:
+                title_element = page.locator('h1').first
+                product_name = await title_element.text_content(timeout=5000)
+                product_name = product_name.strip() if product_name else None
+            except Exception as e:
+                print(f"Не удалось найти название товара: {e}")
+
+            # Извлекаем цену
+            price = None
+            try:
+                price_element = page.locator('span.tsHeadline600Large').first
+                price_text = await price_element.text_content(timeout=5000)
+
+                # Извлекаем число (учитываем все виды пробелов)
+                match = re.search(r'([\d\s\xa0   ]+)\s*₽', price_text)
+                if match:
+                    price_str = match.group(1)
+                    # Удаляем все виды пробелов
+                    price_str = re.sub(r'[\s\xa0   ]', '', price_str)
+
+                    if price_str.isdigit():
+                        price = f"{price_str} ₽"
+
+            except Exception as e:
+                print(f"Не удалось найти цену: {e}")
+
+            await browser.close()
+            return product_name, price
+
+        except Exception as e:
+            print(f"Общая ошибка при парсинге: {e}")
+            await browser.close()
+            return None, None
+
+
+def _load_cookies(filepath: Path) -> list[dict]:
+    """Загружает куки из JSON файла и преобразует в формат Playwright"""
+    with open(filepath, 'r', encoding='utf-8') as f:
+        cookies = json.load(f)
+
+    playwright_cookies = []
+    for cookie in cookies:
+        playwright_cookie = {
+            'name': cookie.get('name'),
+            'value': cookie.get('value'),
+            'domain': cookie.get('domain', '.ozon.ru'),
+            'path': cookie.get('path', '/'),
+        }
+
+        # Добавляем опциональные поля
+        if 'expirationDate' in cookie:
+            playwright_cookie['expires'] = cookie['expirationDate']
+        if 'httpOnly' in cookie:
+            playwright_cookie['httpOnly'] = cookie['httpOnly']
+        if 'secure' in cookie:
+            playwright_cookie['secure'] = cookie['secure']
+
+        # Исправляем sameSite
+        if 'sameSite' in cookie:
+            same_site = cookie['sameSite']
+            if same_site in ['Strict', 'Lax', 'None']:
+                playwright_cookie['sameSite'] = same_site
+            elif same_site == 'no_restriction':
+                playwright_cookie['sameSite'] = 'None'
+            elif same_site == 'unspecified':
+                playwright_cookie['sameSite'] = 'Lax'
+
+        playwright_cookies.append(playwright_cookie)
+
+    return playwright_cookies
 
