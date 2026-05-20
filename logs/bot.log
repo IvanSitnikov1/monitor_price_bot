@@ -1,0 +1,663 @@
+2026-05-20 13:26:27 | INFO     | root | Логирование настроено
+2026-05-20 13:26:27 | INFO     | root | Уровень логирования: INFO
+2026-05-20 13:26:27 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-20 13:26:27 | INFO     | __main__ | ============================================================
+2026-05-20 13:26:27 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-20 13:26:27 | INFO     | __main__ | ============================================================
+2026-05-20 13:26:27 | INFO     | __main__ | Инициализация базы данных...
+2026-05-20 13:26:27 | INFO     | __main__ | База данных готова
+2026-05-20 13:26:27 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 13:26:27 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 13:26:27 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-20 13:26:27 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-20 13:26:27 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-20 13:26:27 | INFO     | __main__ | Планировщик задач запущен
+2026-05-20 13:26:27 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-20 13:26:27 | INFO     | __main__ | Удаление вебхуков...
+2026-05-20 13:26:27 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-20 13:26:27 | INFO     | __main__ | Запуск polling...
+2026-05-20 13:26:27 | INFO     | __main__ | Бот готов к работе!
+2026-05-20 13:26:27 | INFO     | aiogram.dispatcher | Start polling
+2026-05-20 13:26:27 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 13:27:09 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-20 13:27:09 | INFO     | handlers.handlers | Найдено товаров в БД: 2
+2026-05-20 13:27:09 | INFO     | aiogram.event | Update id=624238259 is handled. Duration 254 ms by bot id=5827679864
+2026-05-20 13:27:22 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 2
+2026-05-20 13:27:22 | INFO     | aiogram.event | Update id=624238260 is handled. Duration 185 ms by bot id=5827679864
+2026-05-20 13:27:49 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-20 13:27:49 | INFO     | aiogram.event | Update id=624238261 is handled. Duration 92 ms by bot id=5827679864
+2026-05-20 13:28:35 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/lwD2UYz
+2026-05-20 13:28:35 | INFO     | handlers.handlers | Начало парсинга товара: https://ozon.ru/t/lwD2UYz
+2026-05-20 13:28:35 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/lwD2UYz
+2026-05-20 13:28:36 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/lwD2UYz
+2026-05-20 13:28:38 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 13:28:40 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (2/30с)
+2026-05-20 13:28:42 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (4/30с)
+2026-05-20 13:28:44 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (6/30с)
+2026-05-20 13:28:46 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (8/30с)
+2026-05-20 13:28:48 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (10/30с)
+2026-05-20 13:28:50 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (12/30с)
+2026-05-20 13:28:52 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (14/30с)
+2026-05-20 13:28:54 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (16/30с)
+2026-05-20 13:28:56 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (18/30с)
+2026-05-20 13:28:58 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (20/30с)
+2026-05-20 13:29:00 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (22/30с)
+2026-05-20 13:29:02 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (24/30с)
+2026-05-20 13:29:04 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (26/30с)
+2026-05-20 13:29:06 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (28/30с)
+2026-05-20 13:29:08 | ERROR    | utils.scraper | Превышено время ожидания прохождения капчи
+2026-05-20 13:29:08 | ERROR    | handlers.handlers | Не удалось спарсить товар: https://ozon.ru/t/lwD2UYz
+2026-05-20 13:29:09 | INFO     | aiogram.event | Update id=624238262 is handled. Duration 34085 ms by bot id=5827679864
+2026-05-20 13:30:06 | INFO     | aiogram.event | Update id=624238263 is handled. Duration 98 ms by bot id=5827679864
+2026-05-20 13:30:12 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-20 13:30:12 | INFO     | aiogram.event | Update id=624238264 is handled. Duration 105 ms by bot id=5827679864
+2026-05-20 13:30:13 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/lwD2UYz
+2026-05-20 13:30:13 | INFO     | handlers.handlers | Начало парсинга товара: https://ozon.ru/t/lwD2UYz
+2026-05-20 13:30:13 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/lwD2UYz
+2026-05-20 13:30:14 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/lwD2UYz
+2026-05-20 13:30:16 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 13:30:24 | INFO     | utils.scraper | Название найдено: Шорты карго MOTTON
+2026-05-20 13:30:24 | INFO     | utils.scraper | Цена найдена: 3085 ₽
+2026-05-20 13:30:24 | INFO     | utils.scraper | Парсинг завершен успешно: Шорты карго MOTTON, 3085 ₽
+2026-05-20 13:30:24 | INFO     | handlers.handlers | Товар успешно спарсен: Шорты карго MOTTON, цена: 3085 ₽
+2026-05-20 13:30:24 | INFO     | handlers.handlers | Сохранение товара в БД: Шорты карго MOTTON
+2026-05-20 13:30:24 | INFO     | handlers.handlers | Товар успешно добавлен в БД с ID: 3
+2026-05-20 13:30:24 | INFO     | aiogram.event | Update id=624238265 is handled. Duration 10594 ms by bot id=5827679864
+2026-05-20 13:35:01 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-20 13:35:01 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 13:35:01 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-20 13:35:05 | INFO     | root | Логирование настроено
+2026-05-20 13:35:05 | INFO     | root | Уровень логирования: INFO
+2026-05-20 13:35:05 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-20 13:35:05 | INFO     | __main__ | ============================================================
+2026-05-20 13:35:05 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-20 13:35:05 | INFO     | __main__ | ============================================================
+2026-05-20 13:35:05 | INFO     | __main__ | Инициализация базы данных...
+2026-05-20 13:35:05 | INFO     | __main__ | База данных готова
+2026-05-20 13:35:05 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 13:35:05 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 13:35:05 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-20 13:35:05 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-20 13:35:05 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-20 13:35:05 | INFO     | __main__ | Планировщик задач запущен
+2026-05-20 13:35:05 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-20 13:35:05 | INFO     | __main__ | Удаление вебхуков...
+2026-05-20 13:35:05 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-20 13:35:05 | INFO     | __main__ | Запуск polling...
+2026-05-20 13:35:05 | INFO     | __main__ | Бот готов к работе!
+2026-05-20 13:35:05 | INFO     | aiogram.dispatcher | Start polling
+2026-05-20 13:35:05 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 13:35:34 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-20 13:35:35 | INFO     | aiogram.event | Update id=624238266 is handled. Duration 389 ms by bot id=5827679864
+2026-05-20 13:35:37 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/oftOPEU
+2026-05-20 13:35:37 | INFO     | handlers.handlers | Начало парсинга товара: https://ozon.ru/t/oftOPEU
+2026-05-20 13:35:37 | INFO     | handlers.handlers | Попытка парсинга 1/3
+2026-05-20 13:35:37 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/oftOPEU
+2026-05-20 13:35:38 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/oftOPEU
+2026-05-20 13:35:40 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 13:35:48 | INFO     | utils.scraper | Название найдено: Сандалии Kari мужские летние текстильные с пряжкой
+2026-05-20 13:35:48 | INFO     | utils.scraper | Цена найдена: 2178 ₽
+2026-05-20 13:35:48 | INFO     | utils.scraper | Парсинг завершен успешно: Сандалии Kari мужские летние текстильные с пряжкой, 2178 ₽
+2026-05-20 13:35:48 | INFO     | handlers.handlers | Товар успешно спарсен на попытке 1: Сандалии Kari мужские летние текстильные с пряжкой, цена: 2178 ₽
+2026-05-20 13:35:48 | INFO     | handlers.handlers | Сохранение товара в БД: Сандалии Kari мужские летние текстильные с пряжкой
+2026-05-20 13:35:48 | INFO     | handlers.handlers | Товар успешно добавлен в БД с ID: 4
+2026-05-20 13:35:48 | INFO     | aiogram.event | Update id=624238267 is handled. Duration 10751 ms by bot id=5827679864
+2026-05-20 13:37:37 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-20 13:37:37 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 13:37:37 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-20 13:37:41 | INFO     | root | Логирование настроено
+2026-05-20 13:37:41 | INFO     | root | Уровень логирования: INFO
+2026-05-20 13:37:41 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-20 13:37:41 | INFO     | __main__ | ============================================================
+2026-05-20 13:37:41 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-20 13:37:41 | INFO     | __main__ | ============================================================
+2026-05-20 13:37:41 | INFO     | __main__ | Инициализация базы данных...
+2026-05-20 13:37:41 | INFO     | __main__ | База данных готова
+2026-05-20 13:37:41 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 13:37:41 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 13:37:41 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-20 13:37:41 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-20 13:37:41 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-20 13:37:41 | INFO     | __main__ | Планировщик задач запущен
+2026-05-20 13:37:41 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-20 13:37:41 | INFO     | __main__ | Удаление вебхуков...
+2026-05-20 13:37:41 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-20 13:37:41 | INFO     | __main__ | Запуск polling...
+2026-05-20 13:37:41 | INFO     | __main__ | Бот готов к работе!
+2026-05-20 13:37:41 | INFO     | aiogram.dispatcher | Start polling
+2026-05-20 13:37:41 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 13:37:55 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-20 13:37:55 | INFO     | aiogram.event | Update id=624238268 is handled. Duration 258 ms by bot id=5827679864
+2026-05-20 13:37:57 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/7WyHkyI
+2026-05-20 13:37:57 | INFO     | handlers.handlers | Начало парсинга товара: https://ozon.ru/t/7WyHkyI
+2026-05-20 13:37:57 | INFO     | handlers.handlers | Попытка парсинга 1/3
+2026-05-20 13:37:57 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/7WyHkyI
+2026-05-20 13:37:58 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/7WyHkyI
+2026-05-20 13:38:00 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 13:38:02 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (2/30с)
+2026-05-20 13:38:04 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (4/30с)
+2026-05-20 13:38:06 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (6/30с)
+2026-05-20 13:38:08 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (8/30с)
+2026-05-20 13:38:10 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (10/30с)
+2026-05-20 13:38:12 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (12/30с)
+2026-05-20 13:38:14 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (14/30с)
+2026-05-20 13:38:16 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (16/30с)
+2026-05-20 13:38:18 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (18/30с)
+2026-05-20 13:38:20 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (20/30с)
+2026-05-20 13:38:22 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (22/30с)
+2026-05-20 13:38:24 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (24/30с)
+2026-05-20 13:38:26 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (26/30с)
+2026-05-20 13:38:28 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (28/30с)
+2026-05-20 13:38:30 | ERROR    | utils.scraper | Превышено время ожидания прохождения капчи
+2026-05-20 13:38:30 | WARNING  | handlers.handlers | Попытка 1 не удалась
+2026-05-20 13:38:32 | INFO     | handlers.handlers | Попытка парсинга 2/3
+2026-05-20 13:38:32 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/7WyHkyI
+2026-05-20 13:38:33 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/7WyHkyI
+2026-05-20 13:38:35 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 13:38:37 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (2/30с)
+2026-05-20 13:38:39 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (4/30с)
+2026-05-20 13:38:41 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (6/30с)
+2026-05-20 13:38:43 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (8/30с)
+2026-05-20 13:38:45 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (10/30с)
+2026-05-20 13:38:47 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (12/30с)
+2026-05-20 13:38:49 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (14/30с)
+2026-05-20 13:38:51 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (16/30с)
+2026-05-20 13:38:53 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (18/30с)
+2026-05-20 13:38:55 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (20/30с)
+2026-05-20 13:38:57 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (22/30с)
+2026-05-20 13:38:59 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (24/30с)
+2026-05-20 13:39:01 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (26/30с)
+2026-05-20 13:39:03 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (28/30с)
+2026-05-20 13:39:05 | ERROR    | utils.scraper | Превышено время ожидания прохождения капчи
+2026-05-20 13:39:05 | WARNING  | handlers.handlers | Попытка 2 не удалась
+2026-05-20 13:39:07 | INFO     | handlers.handlers | Попытка парсинга 3/3
+2026-05-20 13:39:07 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/7WyHkyI
+2026-05-20 13:39:08 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/7WyHkyI
+2026-05-20 13:39:10 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 13:39:20 | INFO     | utils.scraper | Название найдено: Сандалии Kari мужские летние
+2026-05-20 13:39:20 | INFO     | utils.scraper | Цена найдена: 1863 ₽
+2026-05-20 13:39:20 | INFO     | utils.scraper | Парсинг завершен успешно: Сандалии Kari мужские летние, 1863 ₽
+2026-05-20 13:39:20 | INFO     | handlers.handlers | Товар успешно спарсен на попытке 3: Сандалии Kari мужские летние, цена: 1863 ₽
+2026-05-20 13:39:20 | INFO     | handlers.handlers | Сохранение товара в БД: Сандалии Kari мужские летние
+2026-05-20 13:39:20 | INFO     | handlers.handlers | Товар успешно добавлен в БД с ID: 5
+2026-05-20 13:39:20 | INFO     | aiogram.event | Update id=624238269 is not handled. Duration 82181 ms by bot id=5827679864
+2026-05-20 13:39:20 | ERROR    | aiogram.event | Cause exception while process update id=624238269 by bot id=5827679864
+ValidationError: 1 validation error for EditMessageText
+reply_markup
+  Input should be a valid dictionary or instance of InlineKeyboardMarkup [type=model_type, input_value=ReplyKeyboardMarkup(keybo...er=None, selective=None), input_type=ReplyKeyboardMarkup]
+    For further information visit https://errors.pydantic.dev/2.13/v/model_type
+Traceback (most recent call last):
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/dispatcher.py", line 320, in _process_update
+    response = await self.feed_update(bot, update, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/dispatcher.py", line 164, in feed_update
+    response = await self.update.wrap_outer_middleware(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/middlewares/error.py", line 27, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/middlewares/user_context.py", line 58, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/fsm/middleware.py", line 43, in __call__
+    return await handler(event, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/event/telegram.py", line 126, in trigger
+    return await wrapped_inner(event, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/event/handler.py", line 71, in call
+    return await wrapped()
+           ^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/dispatcher.py", line 283, in _listen_update
+    return await self.propagate_event(update_type=update_type, event=event, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/router.py", line 165, in propagate_event
+    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/router.py", line 157, in _wrapped
+    return await self._propagate_event(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/router.py", line 193, in _propagate_event
+    response = await router.propagate_event(update_type=update_type, event=event, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/router.py", line 165, in propagate_event
+    return await observer.wrap_outer_middleware(_wrapped, event=event, data=kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/router.py", line 157, in _wrapped
+    return await self._propagate_event(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/router.py", line 185, in _propagate_event
+    response = await observer.trigger(event, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/event/telegram.py", line 126, in trigger
+    return await wrapped_inner(event, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/dispatcher/event/handler.py", line 71, in call
+    return await wrapped()
+           ^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/handlers/handlers.py", line 92, in process_link
+    await status_msg.edit_text(
+          ~~~~~~~~~~~~~~~~~~~~^
+        f"✅ Товар добавлен!\n\n"
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+        reply_markup=main_kb
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/aiogram/types/message.py", line 4021, in edit_text
+    return EditMessageText(
+           ~~~~~~~~~~~~~~~^
+        chat_id=self.chat.id,
+        ^^^^^^^^^^^^^^^^^^^^^
+    ...<9 lines>...
+        **kwargs,
+        ^^^^^^^^^
+    ).as_(self._bot)
+    ^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/pydantic/main.py", line 263, in __init__
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+pydantic_core._pydantic_core.ValidationError: 1 validation error for EditMessageText
+reply_markup
+  Input should be a valid dictionary or instance of InlineKeyboardMarkup [type=model_type, input_value=ReplyKeyboardMarkup(keybo...er=None, selective=None), input_type=ReplyKeyboardMarkup]
+    For further information visit https://errors.pydantic.dev/2.13/v/model_type
+2026-05-20 13:41:01 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-20 13:41:01 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 13:41:01 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-20 13:41:05 | INFO     | root | Логирование настроено
+2026-05-20 13:41:05 | INFO     | root | Уровень логирования: INFO
+2026-05-20 13:41:05 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-20 13:41:05 | INFO     | __main__ | ============================================================
+2026-05-20 13:41:05 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-20 13:41:05 | INFO     | __main__ | ============================================================
+2026-05-20 13:41:05 | INFO     | __main__ | Инициализация базы данных...
+2026-05-20 13:41:05 | INFO     | __main__ | База данных готова
+2026-05-20 13:41:05 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 13:41:05 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 13:41:05 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-20 13:41:05 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-20 13:41:05 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-20 13:41:05 | INFO     | __main__ | Планировщик задач запущен
+2026-05-20 13:41:05 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-20 13:41:05 | INFO     | __main__ | Удаление вебхуков...
+2026-05-20 13:41:05 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-20 13:41:05 | INFO     | __main__ | Запуск polling...
+2026-05-20 13:41:05 | INFO     | __main__ | Бот готов к работе!
+2026-05-20 13:41:05 | INFO     | aiogram.dispatcher | Start polling
+2026-05-20 13:41:05 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:01:04 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-20 15:01:04 | INFO     | aiogram.event | Update id=624238270 is handled. Duration 445 ms by bot id=5827679864
+2026-05-20 15:01:06 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/LnXBHc7
+2026-05-20 15:01:06 | INFO     | handlers.handlers | Начало парсинга товара: https://ozon.ru/t/LnXBHc7
+2026-05-20 15:01:06 | INFO     | handlers.handlers | Попытка парсинга 1/3
+2026-05-20 15:01:06 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/LnXBHc7
+2026-05-20 15:01:07 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/LnXBHc7
+2026-05-20 15:01:09 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 15:01:17 | INFO     | utils.scraper | Название найдено: Набор для 3-х этапной очистки форсунок (Дизель) топливной системы RESURS, присадка в дизельное топливо 450 мл (3 флакона по 150 мл), ВМПАВТО
+2026-05-20 15:01:17 | INFO     | utils.scraper | Цена найдена: 735 ₽
+2026-05-20 15:01:17 | INFO     | utils.scraper | Парсинг завершен успешно: Набор для 3-х этапной очистки форсунок (Дизель) топливной системы RESURS, присадка в дизельное топливо 450 мл (3 флакона по 150 мл), ВМПАВТО, 735 ₽
+2026-05-20 15:01:17 | INFO     | handlers.handlers | Товар успешно спарсен на попытке 1: Набор для 3-х этапной очистки форсунок (Дизель) топливной системы RESURS, присадка в дизельное топливо 450 мл (3 флакона по 150 мл), ВМПАВТО, цена: 735 ₽
+2026-05-20 15:01:17 | INFO     | handlers.handlers | Сохранение товара в БД: Набор для 3-х этапной очистки форсунок (Дизель) топливной системы RESURS, присадка в дизельное топливо 450 мл (3 флакона по 150 мл), ВМПАВТО
+2026-05-20 15:01:17 | INFO     | handlers.handlers | Товар успешно добавлен в БД с ID: 6
+2026-05-20 15:01:18 | INFO     | aiogram.event | Update id=624238271 is handled. Duration 11497 ms by bot id=5827679864
+2026-05-20 15:01:32 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-20 15:01:32 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:01:32 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-20 15:01:36 | INFO     | root | Логирование настроено
+2026-05-20 15:01:36 | INFO     | root | Уровень логирования: INFO
+2026-05-20 15:01:36 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-20 15:01:36 | INFO     | __main__ | ============================================================
+2026-05-20 15:01:36 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-20 15:01:36 | INFO     | __main__ | ============================================================
+2026-05-20 15:01:36 | INFO     | __main__ | Инициализация базы данных...
+2026-05-20 15:01:36 | INFO     | __main__ | База данных готова
+2026-05-20 15:01:36 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:01:36 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:01:36 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-20 15:01:36 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-20 15:01:36 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-20 15:01:36 | INFO     | __main__ | Планировщик задач запущен
+2026-05-20 15:01:36 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-20 15:01:36 | INFO     | __main__ | Удаление вебхуков...
+2026-05-20 15:01:36 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-20 15:01:36 | INFO     | __main__ | Запуск polling...
+2026-05-20 15:01:36 | INFO     | __main__ | Бот готов к работе!
+2026-05-20 15:01:36 | INFO     | aiogram.dispatcher | Start polling
+2026-05-20 15:01:36 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:03:10 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-20 15:03:10 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:03:10 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-20 15:03:13 | INFO     | root | Логирование настроено
+2026-05-20 15:03:13 | INFO     | root | Уровень логирования: INFO
+2026-05-20 15:03:13 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-20 15:03:13 | INFO     | __main__ | ============================================================
+2026-05-20 15:03:13 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-20 15:03:13 | INFO     | __main__ | ============================================================
+2026-05-20 15:03:13 | INFO     | __main__ | Инициализация базы данных...
+2026-05-20 15:03:13 | INFO     | __main__ | База данных готова
+2026-05-20 15:03:13 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:03:13 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:03:13 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-20 15:03:13 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-20 15:03:13 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-20 15:03:13 | INFO     | __main__ | Планировщик задач запущен
+2026-05-20 15:03:13 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-20 15:03:13 | INFO     | __main__ | Удаление вебхуков...
+2026-05-20 15:03:14 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-20 15:03:14 | INFO     | __main__ | Запуск polling...
+2026-05-20 15:03:14 | INFO     | __main__ | Бот готов к работе!
+2026-05-20 15:03:14 | INFO     | aiogram.dispatcher | Start polling
+2026-05-20 15:03:14 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:03:18 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-20 15:03:18 | INFO     | aiogram.event | Update id=624238272 is handled. Duration 193 ms by bot id=5827679864
+2026-05-20 15:03:27 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/fIKu3T8
+2026-05-20 15:03:27 | INFO     | handlers.handlers | Начало парсинга товара: https://ozon.ru/t/fIKu3T8
+2026-05-20 15:03:27 | INFO     | handlers.handlers | Попытка парсинга 1/3
+2026-05-20 15:03:27 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/fIKu3T8
+2026-05-20 15:03:28 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/fIKu3T8
+2026-05-20 15:03:30 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 15:03:38 | INFO     | utils.scraper | Название найдено: Шорты SPORT GEAR с шнурками
+2026-05-20 15:03:39 | INFO     | utils.scraper | Цена найдена: 1724 ₽
+2026-05-20 15:03:39 | INFO     | utils.scraper | Парсинг завершен успешно: Шорты SPORT GEAR с шнурками, 1724 ₽
+2026-05-20 15:03:39 | INFO     | handlers.handlers | Товар успешно спарсен на попытке 1: Шорты SPORT GEAR с шнурками, цена: 1724 ₽
+2026-05-20 15:03:39 | INFO     | handlers.handlers | Сохранение товара в БД: Шорты SPORT GEAR с шнурками
+2026-05-20 15:03:39 | INFO     | handlers.handlers | Товар успешно добавлен в БД с ID: 7
+2026-05-20 15:03:39 | INFO     | aiogram.event | Update id=624238273 is handled. Duration 11318 ms by bot id=5827679864
+2026-05-20 15:03:59 | INFO     | handlers.handlers | Команда /start от пользователя 1189033386 (@Ivanches1)
+2026-05-20 15:03:59 | INFO     | aiogram.event | Update id=624238274 is handled. Duration 84 ms by bot id=5827679864
+2026-05-20 15:04:04 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-20 15:04:04 | INFO     | handlers.handlers | Найдено товаров в БД: 7
+2026-05-20 15:04:04 | INFO     | aiogram.event | Update id=624238275 is handled. Duration 142 ms by bot id=5827679864
+2026-05-20 15:04:15 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 3
+2026-05-20 15:04:15 | INFO     | aiogram.event | Update id=624238276 is handled. Duration 178 ms by bot id=5827679864
+2026-05-20 15:04:21 | INFO     | aiogram.event | Update id=624238277 is handled. Duration 179 ms by bot id=5827679864
+2026-05-20 15:04:22 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 2
+2026-05-20 15:04:22 | INFO     | aiogram.event | Update id=624238278 is handled. Duration 184 ms by bot id=5827679864
+2026-05-20 15:04:24 | INFO     | aiogram.event | Update id=624238279 is handled. Duration 157 ms by bot id=5827679864
+2026-05-20 15:04:25 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 1
+2026-05-20 15:04:25 | INFO     | aiogram.event | Update id=624238280 is handled. Duration 165 ms by bot id=5827679864
+2026-05-20 15:04:28 | INFO     | aiogram.event | Update id=624238281 is handled. Duration 163 ms by bot id=5827679864
+2026-05-20 15:05:49 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-20 15:05:49 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:05:49 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-20 15:05:52 | INFO     | root | Логирование настроено
+2026-05-20 15:05:52 | INFO     | root | Уровень логирования: INFO
+2026-05-20 15:05:52 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-20 15:05:52 | INFO     | __main__ | ============================================================
+2026-05-20 15:05:52 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-20 15:05:52 | INFO     | __main__ | ============================================================
+2026-05-20 15:05:52 | INFO     | __main__ | Инициализация базы данных...
+2026-05-20 15:05:52 | INFO     | __main__ | База данных готова
+2026-05-20 15:05:52 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:05:52 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:05:52 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-20 15:05:52 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-20 15:05:52 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-20 15:05:52 | INFO     | __main__ | Планировщик задач запущен
+2026-05-20 15:05:52 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-20 15:05:52 | INFO     | __main__ | Удаление вебхуков...
+2026-05-20 15:05:52 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-20 15:05:52 | INFO     | __main__ | Запуск polling...
+2026-05-20 15:05:52 | INFO     | __main__ | Бот готов к работе!
+2026-05-20 15:05:52 | INFO     | aiogram.dispatcher | Start polling
+2026-05-20 15:05:52 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:05:55 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-20 15:05:55 | INFO     | handlers.handlers | Найдено товаров в БД: 7
+2026-05-20 15:05:55 | INFO     | aiogram.event | Update id=624238282 is handled. Duration 247 ms by bot id=5827679864
+2026-05-20 15:06:22 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 7
+2026-05-20 15:06:22 | INFO     | aiogram.event | Update id=624238283 is handled. Duration 217 ms by bot id=5827679864
+2026-05-20 15:06:39 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-20 15:06:39 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:06:39 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-20 15:07:36 | INFO     | root | Логирование настроено
+2026-05-20 15:07:36 | INFO     | root | Уровень логирования: INFO
+2026-05-20 15:07:36 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-20 15:07:36 | INFO     | __main__ | ============================================================
+2026-05-20 15:07:36 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-20 15:07:36 | INFO     | __main__ | ============================================================
+2026-05-20 15:07:36 | INFO     | __main__ | Инициализация базы данных...
+2026-05-20 15:07:36 | INFO     | __main__ | База данных готова
+2026-05-20 15:07:36 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:07:36 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:07:36 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-20 15:07:36 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-20 15:07:36 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-20 15:07:36 | INFO     | __main__ | Планировщик задач запущен
+2026-05-20 15:07:36 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-20 15:07:36 | INFO     | __main__ | Удаление вебхуков...
+2026-05-20 15:07:36 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-20 15:07:36 | INFO     | __main__ | Запуск polling...
+2026-05-20 15:07:36 | INFO     | __main__ | Бот готов к работе!
+2026-05-20 15:07:36 | INFO     | aiogram.dispatcher | Start polling
+2026-05-20 15:07:36 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:07:37 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-20 15:07:37 | INFO     | handlers.handlers | Найдено товаров в БД: 7
+2026-05-20 15:07:37 | INFO     | aiogram.event | Update id=624238284 is handled. Duration 276 ms by bot id=5827679864
+2026-05-20 15:07:38 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 3
+2026-05-20 15:07:39 | INFO     | aiogram.event | Update id=624238285 is handled. Duration 435 ms by bot id=5827679864
+2026-05-20 15:07:43 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-20 15:07:43 | INFO     | handlers.handlers | Найдено товаров в БД: 7
+2026-05-20 15:07:43 | INFO     | aiogram.event | Update id=624238286 is handled. Duration 175 ms by bot id=5827679864
+2026-05-20 15:07:51 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 3
+2026-05-20 15:07:51 | INFO     | aiogram.event | Update id=624238287 is handled. Duration 260 ms by bot id=5827679864
+2026-05-20 15:08:26 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-20 15:08:26 | INFO     | handlers.handlers | Найдено товаров в БД: 7
+2026-05-20 15:08:27 | INFO     | aiogram.event | Update id=624238288 is handled. Duration 118 ms by bot id=5827679864
+2026-05-20 15:08:28 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 1
+2026-05-20 15:08:28 | INFO     | aiogram.event | Update id=624238289 is handled. Duration 184 ms by bot id=5827679864
+2026-05-20 15:08:30 | INFO     | handlers.handlers | Пользователь 1189033386 удаляет товар ID: 1
+2026-05-20 15:08:30 | INFO     | handlers.handlers | Товар ID 1 успешно удален
+2026-05-20 15:08:30 | INFO     | aiogram.event | Update id=624238290 is handled. Duration 192 ms by bot id=5827679864
+2026-05-20 15:08:34 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 2
+2026-05-20 15:08:34 | INFO     | aiogram.event | Update id=624238291 is handled. Duration 227 ms by bot id=5827679864
+2026-05-20 15:08:35 | INFO     | handlers.handlers | Пользователь 1189033386 удаляет товар ID: 2
+2026-05-20 15:08:35 | INFO     | handlers.handlers | Товар ID 2 успешно удален
+2026-05-20 15:08:35 | INFO     | aiogram.event | Update id=624238292 is handled. Duration 229 ms by bot id=5827679864
+2026-05-20 15:09:00 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 5
+2026-05-20 15:09:00 | INFO     | aiogram.event | Update id=624238293 is handled. Duration 213 ms by bot id=5827679864
+2026-05-20 15:09:01 | INFO     | handlers.handlers | Пользователь 1189033386 удаляет товар ID: 5
+2026-05-20 15:09:01 | INFO     | handlers.handlers | Товар ID 5 успешно удален
+2026-05-20 15:09:01 | INFO     | aiogram.event | Update id=624238294 is handled. Duration 227 ms by bot id=5827679864
+2026-05-20 15:09:02 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 6
+2026-05-20 15:09:02 | INFO     | aiogram.event | Update id=624238295 is handled. Duration 185 ms by bot id=5827679864
+2026-05-20 15:09:03 | INFO     | handlers.handlers | Пользователь 1189033386 удаляет товар ID: 6
+2026-05-20 15:09:03 | INFO     | handlers.handlers | Товар ID 6 успешно удален
+2026-05-20 15:09:03 | INFO     | aiogram.event | Update id=624238296 is handled. Duration 269 ms by bot id=5827679864
+2026-05-20 15:09:04 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 7
+2026-05-20 15:09:04 | INFO     | aiogram.event | Update id=624238297 is handled. Duration 296 ms by bot id=5827679864
+2026-05-20 15:09:06 | INFO     | handlers.handlers | Пользователь 1189033386 удаляет товар ID: 7
+2026-05-20 15:09:06 | INFO     | handlers.handlers | Товар ID 7 успешно удален
+2026-05-20 15:09:06 | INFO     | aiogram.event | Update id=624238298 is handled. Duration 188 ms by bot id=5827679864
+2026-05-20 15:09:38 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-20 15:09:38 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:09:38 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-20 15:09:41 | INFO     | root | Логирование настроено
+2026-05-20 15:09:41 | INFO     | root | Уровень логирования: INFO
+2026-05-20 15:09:41 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-20 15:09:41 | INFO     | __main__ | ============================================================
+2026-05-20 15:09:41 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-20 15:09:41 | INFO     | __main__ | ============================================================
+2026-05-20 15:09:41 | INFO     | __main__ | Инициализация базы данных...
+2026-05-20 15:09:41 | INFO     | __main__ | База данных готова
+2026-05-20 15:09:41 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:09:41 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:09:41 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-20 15:09:41 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-20 15:09:41 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-20 15:09:41 | INFO     | __main__ | Планировщик задач запущен
+2026-05-20 15:09:41 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-20 15:09:41 | INFO     | __main__ | Удаление вебхуков...
+2026-05-20 15:09:41 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-20 15:09:41 | INFO     | __main__ | Запуск polling...
+2026-05-20 15:09:41 | INFO     | __main__ | Бот готов к работе!
+2026-05-20 15:09:41 | INFO     | aiogram.dispatcher | Start polling
+2026-05-20 15:09:41 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:09:51 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-20 15:09:52 | INFO     | aiogram.event | Update id=624238299 is handled. Duration 201 ms by bot id=5827679864
+2026-05-20 15:09:53 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://www.ozon.ru/product/nabor-dlya-3-h-etapnoy-ochistki-forsunok-dizel-toplivnoy-sistemy-resurs-prisadka-v-dizelnoe-toplivo-2889551875/?at=46tRnKyWyUNr7vWzhpyELDoCkVA0pju2pg40Otxnn42V
+2026-05-20 15:09:53 | INFO     | handlers.handlers | Начало парсинга товара: https://www.ozon.ru/product/nabor-dlya-3-h-etapnoy-ochistki-forsunok-dizel-toplivnoy-sistemy-resurs-prisadka-v-dizelnoe-toplivo-2889551875/?at=46tRnKyWyUNr7vWzhpyELDoCkVA0pju2pg40Otxnn42V
+2026-05-20 15:09:53 | INFO     | handlers.handlers | Попытка парсинга 1/3
+2026-05-20 15:09:53 | INFO     | utils.scraper | Запуск браузера для парсинга: https://www.ozon.ru/product/nabor-dlya-3-h-etapnoy-ochistki-forsunok-dizel-toplivnoy-sistemy-resurs-prisadka-v-dizelnoe-toplivo-2889551875/?at=46tRnKyWyUNr7vWzhpyELDoCkVA0pju2pg40Otxnn42V
+2026-05-20 15:09:54 | INFO     | utils.scraper | Переход на страницу: https://www.ozon.ru/product/nabor-dlya-3-h-etapnoy-ochistki-forsunok-dizel-toplivnoy-sistemy-resurs-prisadka-v-dizelnoe-toplivo-2889551875/?at=46tRnKyWyUNr7vWzhpyELDoCkVA0pju2pg40Otxnn42V
+2026-05-20 15:09:55 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 15:10:04 | INFO     | utils.scraper | Название найдено: Набор для 3-х этапной очистки форсунок (Дизель) топливной системы RESURS, присадка в дизельное топливо 450 мл (3 флакона по 150 мл), ВМПАВТО
+2026-05-20 15:10:04 | INFO     | utils.scraper | Цена найдена: 735 ₽
+2026-05-20 15:10:04 | INFO     | utils.scraper | Парсинг завершен успешно: Набор для 3-х этапной очистки форсунок (Дизель) топливной системы RESURS, присадка в дизельное топливо 450 мл (3 флакона по 150 мл), ВМПАВТО, 735 ₽
+2026-05-20 15:10:04 | INFO     | handlers.handlers | Товар успешно спарсен на попытке 1: Набор для 3-х этапной очистки форсунок (Дизель) топливной системы RESURS, присадка в дизельное топливо 450 мл (3 флакона по 150 мл), ВМПАВТО, цена: 735 ₽
+2026-05-20 15:10:04 | INFO     | handlers.handlers | Сохранение товара в БД: Набор для 3-х этапной очистки форсунок (Дизель) топливной системы RESURS, присадка в дизельное топливо 450 мл (3 флакона по 150 мл), ВМПАВТО
+2026-05-20 15:10:04 | INFO     | handlers.handlers | Товар успешно добавлен в БД с ID: 8
+2026-05-20 15:10:04 | INFO     | aiogram.event | Update id=624238300 is handled. Duration 11168 ms by bot id=5827679864
+2026-05-20 15:10:07 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-20 15:10:07 | INFO     | handlers.handlers | Найдено товаров в БД: 3
+2026-05-20 15:10:07 | INFO     | aiogram.event | Update id=624238301 is handled. Duration 91 ms by bot id=5827679864
+2026-05-20 15:10:10 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 8
+2026-05-20 15:10:11 | INFO     | aiogram.event | Update id=624238302 is handled. Duration 374 ms by bot id=5827679864
+2026-05-20 15:10:13 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 4
+2026-05-20 15:10:13 | INFO     | aiogram.event | Update id=624238303 is handled. Duration 150 ms by bot id=5827679864
+2026-05-20 15:10:19 | INFO     | handlers.handlers | Пользователь 1189033386 удаляет товар ID: 8
+2026-05-20 15:10:19 | INFO     | handlers.handlers | Товар ID 8 успешно удален
+2026-05-20 15:10:19 | INFO     | aiogram.event | Update id=624238304 is handled. Duration 151 ms by bot id=5827679864
+2026-05-20 15:10:21 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 8
+2026-05-20 15:10:21 | WARNING  | handlers.handlers | Товар с ID 8 не найден в БД
+2026-05-20 15:10:21 | INFO     | aiogram.event | Update id=624238305 is handled. Duration 66 ms by bot id=5827679864
+2026-05-20 15:10:25 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 4
+2026-05-20 15:10:26 | INFO     | aiogram.event | Update id=624238306 is handled. Duration 294 ms by bot id=5827679864
+2026-05-20 15:10:27 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 3
+2026-05-20 15:10:27 | INFO     | aiogram.event | Update id=624238307 is handled. Duration 224 ms by bot id=5827679864
+2026-05-20 15:14:59 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-20 15:14:59 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 15:14:59 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-20 15:19:41 | INFO     | root | Логирование настроено
+2026-05-20 15:19:41 | INFO     | root | Уровень логирования: INFO
+2026-05-20 15:19:41 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-20 15:19:41 | INFO     | __main__ | ============================================================
+2026-05-20 15:19:41 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-20 15:19:41 | INFO     | __main__ | ============================================================
+2026-05-20 15:19:41 | INFO     | __main__ | Инициализация базы данных...
+2026-05-20 15:19:41 | INFO     | __main__ | База данных готова
+2026-05-20 15:19:41 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:19:41 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 15:19:41 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-20 15:19:41 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-20 15:19:41 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-20 15:19:41 | INFO     | __main__ | Планировщик задач запущен
+2026-05-20 15:19:41 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-20 15:19:41 | INFO     | __main__ | Удаление вебхуков...
+2026-05-20 15:19:41 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-20 15:19:41 | INFO     | __main__ | Запуск polling...
+2026-05-20 15:19:41 | INFO     | __main__ | Бот готов к работе!
+2026-05-20 15:19:41 | INFO     | aiogram.dispatcher | Start polling
+2026-05-20 15:19:41 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 16:37:14 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-20 16:37:14 | INFO     | handlers.handlers | Найдено товаров в БД: 2
+2026-05-20 16:37:15 | INFO     | aiogram.event | Update id=624238308 is handled. Duration 440 ms by bot id=5827679864
+2026-05-20 16:37:16 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 4
+2026-05-20 16:37:16 | INFO     | aiogram.event | Update id=624238309 is handled. Duration 306 ms by bot id=5827679864
+2026-05-20 16:37:27 | INFO     | handlers.handlers | Пользователь 1189033386 запросил историю цен товара ID: 4
+2026-05-20 16:37:28 | INFO     | aiogram.event | Update id=624238310 is handled. Duration 430 ms by bot id=5827679864
+2026-05-20 16:46:15 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-20 16:46:15 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 16:46:15 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-20 16:46:29 | INFO     | root | Логирование настроено
+2026-05-20 16:46:29 | INFO     | root | Уровень логирования: INFO
+2026-05-20 16:46:29 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-20 16:46:29 | INFO     | __main__ | ============================================================
+2026-05-20 16:46:29 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-20 16:46:29 | INFO     | __main__ | ============================================================
+2026-05-20 16:46:29 | INFO     | __main__ | Инициализация базы данных...
+2026-05-20 16:46:29 | INFO     | __main__ | База данных готова
+2026-05-20 16:46:29 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 16:46:29 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-20 16:46:29 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-20 16:46:29 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-20 16:46:29 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-20 16:46:29 | INFO     | __main__ | Планировщик задач запущен
+2026-05-20 16:46:29 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-20 16:46:29 | INFO     | __main__ | Удаление вебхуков...
+2026-05-20 16:46:29 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-20 16:46:29 | INFO     | __main__ | Запуск polling...
+2026-05-20 16:46:29 | INFO     | __main__ | Бот готов к работе!
+2026-05-20 16:46:29 | INFO     | aiogram.dispatcher | Start polling
+2026-05-20 16:46:29 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-20 16:46:53 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-20 16:46:53 | INFO     | aiogram.event | Update id=624238311 is handled. Duration 258 ms by bot id=5827679864
+2026-05-20 16:46:55 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:46:55 | INFO     | handlers.handlers | Начало парсинга товара: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:46:55 | INFO     | handlers.handlers | Попытка парсинга 1/3
+2026-05-20 16:46:55 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:46:56 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:46:58 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 16:47:00 | ERROR    | utils.scraper | Общая ошибка при парсинге: Page.content: Unable to retrieve content because the page is navigating and changing the content.
+Traceback (most recent call last):
+  File "/home/ivans/projects/monitor_price_bot/utils/scraper.py", line 65, in scrape_ozon_product
+    content = await page.content()
+              ^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/async_api/_generated.py", line 9509, in content
+    return mapping.from_maybe_impl(await self._impl_obj.content())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_page.py", line 540, in content
+    return await self._main_frame.content()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_frame.py", line 478, in content
+    return await self._channel.send("content", None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_connection.py", line 69, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_connection.py", line 559, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.Error: Page.content: Unable to retrieve content because the page is navigating and changing the content.
+2026-05-20 16:47:00 | WARNING  | handlers.handlers | Попытка 1 не удалась
+2026-05-20 16:47:02 | INFO     | handlers.handlers | Попытка парсинга 2/3
+2026-05-20 16:47:02 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:47:03 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:47:05 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 16:47:20 | INFO     | utils.scraper | Название найдено: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739
+2026-05-20 16:47:20 | INFO     | utils.scraper | Цена найдена: 283 ₽
+2026-05-20 16:47:20 | INFO     | utils.scraper | Парсинг завершен успешно: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739, 283 ₽
+2026-05-20 16:47:20 | INFO     | handlers.handlers | Товар успешно спарсен на попытке 2: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739, цена: 283 ₽
+2026-05-20 16:47:20 | INFO     | handlers.handlers | Сохранение товара в БД: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739
+2026-05-20 16:47:20 | INFO     | handlers.handlers | Товар успешно добавлен в БД с ID: 9
+2026-05-20 16:47:20 | INFO     | aiogram.event | Update id=624238312 is handled. Duration 25372 ms by bot id=5827679864
+2026-05-20 16:47:51 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-20 16:47:51 | INFO     | aiogram.event | Update id=624238313 is handled. Duration 142 ms by bot id=5827679864
+2026-05-20 16:47:52 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:47:53 | INFO     | handlers.handlers | Начало парсинга товара: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:47:53 | INFO     | handlers.handlers | Попытка парсинга 1/3
+2026-05-20 16:47:53 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:47:53 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:47:56 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 16:48:06 | INFO     | utils.scraper | Название найдено: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739
+2026-05-20 16:48:06 | INFO     | utils.scraper | Цена найдена: 283 ₽
+2026-05-20 16:48:06 | INFO     | utils.scraper | Парсинг завершен успешно: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739, 283 ₽
+2026-05-20 16:48:06 | INFO     | handlers.handlers | Товар успешно спарсен на попытке 1: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739, цена: 283 ₽
+2026-05-20 16:48:06 | INFO     | handlers.handlers | Сохранение товара в БД: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739
+2026-05-20 16:48:06 | WARNING  | handlers.handlers | Товар уже существует в БД для пользователя 1189033386: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:48:07 | INFO     | aiogram.event | Update id=624238314 is handled. Duration 14170 ms by bot id=5827679864
+2026-05-20 16:48:47 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-20 16:48:47 | INFO     | aiogram.event | Update id=624238315 is handled. Duration 142 ms by bot id=5827679864
+2026-05-20 16:48:48 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:48:48 | INFO     | handlers.handlers | Начало парсинга товара: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:48:48 | INFO     | handlers.handlers | Попытка парсинга 1/3
+2026-05-20 16:48:48 | INFO     | utils.scraper | Запуск браузера для парсинга: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:48:49 | INFO     | utils.scraper | Переход на страницу: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:48:53 | WARNING  | utils.scraper | Обнаружена капча, ожидание... (0/30с)
+2026-05-20 16:49:04 | INFO     | utils.scraper | Название найдено: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739
+2026-05-20 16:49:04 | INFO     | utils.scraper | Цена найдена: 283 ₽
+2026-05-20 16:49:04 | INFO     | utils.scraper | Парсинг завершен успешно: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739, 283 ₽
+2026-05-20 16:49:04 | INFO     | handlers.handlers | Товар успешно спарсен на попытке 1: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739, цена: 283 ₽
+2026-05-20 16:49:04 | INFO     | handlers.handlers | Сохранение товара в БД: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739
+2026-05-20 16:49:04 | WARNING  | handlers.handlers | Товар уже существует в БД для пользователя 1189033386: https://ozon.ru/t/nPJZlO7
+2026-05-20 16:49:04 | INFO     | aiogram.event | Update id=624238316 is handled. Duration 16127 ms by bot id=5827679864

@@ -34,13 +34,19 @@ def get_product_detail_keyboard(product_id: int) -> InlineKeyboardMarkup:
         product_id: ID товара
 
     Returns:
-        InlineKeyboardMarkup с кнопкой "Назад"
+        InlineKeyboardMarkup с кнопками "История цен" и "Удалить"
     """
     builder = InlineKeyboardBuilder()
 
     builder.button(
-        text="◀️ Назад",
-        callback_data="back_to_list"
+        text="📊 История цен",
+        callback_data=f"history:{product_id}"
     )
+    builder.button(
+        text="🗑 Удалить",
+        callback_data=f"delete:{product_id}"
+    )
+
+    builder.adjust(2)
 
     return builder.as_markup()

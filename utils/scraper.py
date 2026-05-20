@@ -1,10 +1,14 @@
 import asyncio
 import json
+import logging
 import re
 import time
 from pathlib import Path
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+
+
+logger = logging.getLogger(__name__)
 
 
 async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
@@ -17,9 +21,11 @@ async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
     Returns:
         Кортеж (название, цена) или (None, None) в случае ошибки.
     """
+    logger.info(f"Запуск браузера для парсинга: {url}")
     cookies_file = Path("ozon_cookies.json")
 
     async with async_playwright() as p:
+        logger.debug("Запуск Chromium в headless режиме")
         browser = await p.chromium.launch(
             headless=True,
             args=[
@@ -38,14 +44,17 @@ async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
         # Загружаем куки, если файл существует
         if cookies_file.exists():
             try:
+                logger.debug(f"Загрузка cookies из {cookies_file}")
                 cookies = _load_cookies(cookies_file)
                 await context.add_cookies(cookies)
+                logger.debug(f"Загружено {len(cookies)} cookies")
             except Exception as e:
-                print(f"Ошибка загрузки кук: {e}")
+                logger.error(f"Ошибка загрузки кук: {e}")
 
         page = await context.new_page()
 
         try:
+            logger.info(f"Переход на страницу: {url}")
             await page.goto(url, timeout=30000)
 
             # Проверяем наличие капчи (ждём до 30 секунд)
@@ -53,40 +62,54 @@ async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
             waited = 0
 
             while waited < max_wait:
-                content = await page.content()
+                try:
+                    content = await page.content()
 
-                if "Доступ ограничен" in content or "captcha" in content.lower() or "challenge" in content.lower():
+                    if "Доступ ограничен" in content or "captcha" in content.lower() or "challenge" in content.lower():
+                        logger.warning(f"Обнаружена капча, ожидание... ({waited}/{max_wait}с)")
+                        await asyncio.sleep(2)
+                        waited += 2
+                    else:
+                        break
+                except Exception as e:
+                    # Страница еще навигируется, пропускаем эту итерацию
+                    logger.debug(f"Страница навигируется, ожидание... ({waited}/{max_wait}с)")
                     await asyncio.sleep(2)
                     waited += 2
-                else:
-                    break
 
             if waited >= max_wait:
+                logger.error("Превышено время ожидания прохождения капчи")
                 await browser.close()
                 return None, None
 
             # Ждем загрузки контента
+            logger.debug("Ожидание загрузки страницы...")
             try:
                 await page.wait_for_load_state('networkidle', timeout=15000)
+                logger.debug("Страница загружена (networkidle)")
             except PlaywrightTimeoutError:
-                pass
+                logger.warning("Timeout при ожидании networkidle, продолжаем")
 
             await asyncio.sleep(2)
 
             # Извлекаем название товара
+            logger.debug("Поиск названия товара...")
             product_name = None
             try:
                 title_element = page.locator('h1').first
                 product_name = await title_element.text_content(timeout=5000)
                 product_name = product_name.strip() if product_name else None
+                logger.info(f"Название найдено: {product_name}")
             except Exception as e:
-                print(f"Не удалось найти название товара: {e}")
+                logger.error(f"Не удалось найти название товара: {e}")
 
             # Извлекаем цену
+            logger.debug("Поиск цены товара...")
             price = None
             try:
                 price_element = page.locator('span.tsHeadline600Large').first
                 price_text = await price_element.text_content(timeout=5000)
+                logger.debug(f"Найден текст цены: {price_text}")
 
                 # Извлекаем число (учитываем все виды пробелов)
                 match = re.search(r'([\d\s\xa0   ]+)\s*₽', price_text)
@@ -97,15 +120,18 @@ async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
 
                     if price_str.isdigit():
                         price = f"{price_str} ₽"
+                        logger.info(f"Цена найдена: {price}")
 
             except Exception as e:
-                print(f"Не удалось найти цену: {e}")
+                logger.error(f"Не удалось найти цену: {e}")
 
+            logger.debug("Закрытие браузера")
             await browser.close()
+            logger.info(f"Парсинг завершен успешно: {product_name}, {price}")
             return product_name, price
 
         except Exception as e:
-            print(f"Общая ошибка при парсинге: {e}")
+            logger.error(f"Общая ошибка при парсинге: {e}", exc_info=True)
             await browser.close()
             return None, None
 

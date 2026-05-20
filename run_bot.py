@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -8,14 +9,25 @@ from main import bot, dp
 from handlers import main_router
 from core.database import setup_database
 from utils.price_updater import update_all_prices
+from utils.logger import setup_logging
 
 
 logger = logging.getLogger(__name__)
 
 
 async def start_bot():
+    # Настраиваем логирование
+    log_file = Path("logs/bot.log")
+    setup_logging(level="INFO", log_file=log_file)
+
+    logger.info("=" * 60)
+    logger.info("Запуск бота мониторинга цен Ozon")
+    logger.info("=" * 60)
+
     # Инициализируем базу данных
+    logger.info("Инициализация базы данных...")
     await setup_database()
+    logger.info("База данных готова")
 
     # Настраиваем планировщик задач
     scheduler = AsyncIOScheduler()
@@ -43,10 +55,16 @@ async def start_bot():
     logger.info("Обновление цен: 00:00 и 12:00 ежедневно")
 
     # Удаляем вебхуки и пропускаем старые сообщения
+    logger.info("Удаление вебхуков...")
     await bot.delete_webhook(drop_pending_updates=True)
+
     # Добавляем роутеры
+    logger.info("Регистрация обработчиков...")
     dp.include_router(main_router)
+
     # Запускаем опрос
+    logger.info("Запуск polling...")
+    logger.info("Бот готов к работе!")
     await dp.start_polling(bot)
 
 
