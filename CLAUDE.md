@@ -4,42 +4,57 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Telegram bot for monitoring product prices on Ozon marketplace, built with `aiogram` framework. The bot allows users to add product URLs, scrapes prices using Playwright/Selenium, and will eventually track price changes over time. Currently in early development with basic URL handling and scraping functionality implemented.
+Telegram bot for monitoring product prices on Ozon marketplace, built with `aiogram` framework. The bot allows users to add product URLs, scrapes prices using undetected-chromedriver, tracks price history, and automatically updates prices on schedule.
 
 **Key Technologies:**
 - **Bot Framework:** `aiogram` (async Telegram bot framework)
 - **Configuration:** `pydantic-settings` (loads from `.env`)
-- **Database:** `aiosqlite` (planned, not yet implemented)
-- **Web Scraping:** `playwright`, `selenium`, `undetected-chromedriver`
+- **Database:** `aiosqlite` (SQLite database with price history)
+- **Web Scraping:** `undetected-chromedriver` with Selenium
 - **Proxy Support:** Configured via `aiohttp-socks`
+- **Scheduling:** `APScheduler` for automatic price updates
 
 ## Architecture
 
 ### Core Components
 
-- **`main.py`**: Bot and dispatcher initialization with proxy session setup
-- **`run_bot.py`**: Entry point that starts polling
+- **`main.py`**: Bot and dispatcher initialization with proxy session setup, APScheduler configuration
+- **`run_bot.py`**: Entry point that starts polling and price update scheduler
 - **`config.py`**: Pydantic settings model loading `BOT_TOKEN` and `PROXY_URL` from `.env`
 - **`handlers/handlers.py`**: Message and command handlers using FSM for multi-step flows
-- **`utils/scraper.py`**: Web scraping logic using undetected-chromedriver (currently saves HTML for debugging)
+- **`utils/scraper.py`**: Web scraping logic using undetected-chromedriver with price extraction
+- **`utils/price_updater.py`**: Background price update logic with retry mechanism
 - **`utils/states.py`**: FSM state definitions (e.g., `AddPosition.waiting_for_link`)
-- **`keyboards/reply.py`**: Reply keyboard layouts
-- **`core/`**: Intended for business logic and database operations (currently empty/minimal)
+- **`keyboards/reply.py`**: Reply keyboard layouts (main_kb, admin_kb)
+- **`keyboards/inline.py`**: Inline keyboards for product lists and details
+- **`core/database.py`**: All database operations (add/get/delete products, price history)
+- **`core/models.py`**: Pydantic models for data validation
 
 ### Data Flow
 
-1. User sends `/start` → receives main keyboard with "Добавить позицию" and "Список позиций"
+1. User sends `/start` → receives keyboard with "Добавить позицию" and "Список позиций" (admin sees "🔄 Обновить цены")
 2. User clicks "Добавить позицию" → FSM enters `AddPosition.waiting_for_link` state
-3. User sends product URL → `scrape_ozon_product()` runs in executor, saves HTML to `ozon_page.html`
-4. Bot responds with placeholder data (actual parsing not yet implemented)
+3. User sends product URL → `scrape_ozon_product()` extracts name and price (up to 3 retries)
+4. Product saved to database with initial price, user subscribed to product
+5. User clicks "Список позиций" → sees inline keyboard with all tracked products
+6. User clicks on product → sees detailed info (current/min/max prices, history)
+7. APScheduler runs `update_all_prices()` daily at 12:00 and 18:00 MSK
 
-### Scraping Strategy
+### Database Schema
 
-Two scraping implementations exist:
-- **`utils/scraper.py`**: Uses `undetected-chromedriver` with headless Chrome, currently saves HTML for debugging
-- **`test.py`**: Standalone Playwright script with multiple selector fallbacks for price extraction
+**products** — товары на Ozon
+- `id` (PK), `url` (unique), `name`, `date_added`
 
-The Playwright approach in `test.py` is more complete and should be integrated into the main bot flow.
+**price_history** — история изменения цен
+- `id` (PK), `product_id` (FK), `price`, `date_checked`
+
+**user_products** — подписки пользователей на товары
+- `user_id`, `product_id` (composite PK), `date_subscribed`
+
+### Admin Features
+
+Admin user (ID: 1189033386) has access to:
+- **"🔄 Обновить цены"** button — manually trigger price update for all products
 
 ## Development Commands
 
@@ -101,19 +116,24 @@ python test.py <ozon_product_url>
 ## Current State & Next Steps
 
 **Implemented:**
-- Basic bot structure with proxy support
-- FSM flow for adding product URLs
-- Selenium-based scraping (saves HTML, parsing incomplete)
-- Standalone Playwright scraper with working price extraction
+- ✅ Bot structure with proxy support
+- ✅ FSM flow for adding product URLs
+- ✅ Selenium-based scraping with price extraction
+- ✅ Database schema and operations (SQLite via aiosqlite)
+- ✅ Price history tracking
+- ✅ Background monitoring task (APScheduler: 12:00 and 18:00 MSK daily)
+- ✅ "Список позиций" with inline keyboards
+- ✅ Product details view (current/min/max prices)
+- ✅ Price history view
+- ✅ Product deletion
+- ✅ Admin panel with manual price update
 
 **Not Yet Implemented:**
-- Database schema and operations (`core/database.py` is empty)
-- Price history tracking
-- Background monitoring task (periodic price checks)
-- "Список позиций" functionality
-- Integration of working Playwright scraper into main bot flow
+- Price change notifications to users
+- Price alerts (notify when price drops below threshold)
+- Multiple marketplace support (currently Ozon only)
+- Tests
 
 **Known Issues:**
-- `utils/scraper.py` only saves HTML to file, doesn't extract price
-- `core/models.py` and `core/database.py` are empty
-- No tests
+- Scraper может не работать при капче
+- Нет обработки случаев, когда товар удален с Ozon

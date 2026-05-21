@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import re
 from datetime import datetime
@@ -7,10 +6,9 @@ from aiogram import F, types, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
-from keyboards.reply import main_kb
+from keyboards.reply import main_kb, admin_kb
 from keyboards.inline import get_products_keyboard, get_product_detail_keyboard
 from utils.states import AddPosition
-from utils.scraper import scrape_ozon_product
 from core.database import (
     add_product,
     get_all_products,
@@ -19,10 +17,13 @@ from core.database import (
     get_price_history,
     check_user_has_product
 )
+from utils.price_updater import update_all_prices
 
 
 logger = logging.getLogger(__name__)
 main_router = Router()
+
+ADMIN_ID = 1189033386
 
 
 # Обработчик команды /start
@@ -31,9 +32,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
     user = message.from_user
     logger.info(f"Команда /start от пользователя {user.id} (@{user.username})")
     await state.clear()
+
+    keyboard = admin_kb if user.id == ADMIN_ID else main_kb
+
     await message.answer(
         "Привет! Я бот для мониторинга цен. Выбери действие:",
-        reply_markup=main_kb,
+        reply_markup=keyboard,
     )
 
 
@@ -60,72 +64,21 @@ async def process_link(message: types.Message, state: FSMContext):
         await state.clear()
         return
 
-    await state.update_data(link=url)
-
-    status_msg = await message.answer(
-        "⏳ Обрабатываю ссылку...\n"
-        "Это может занять до 1 минуты, пожалуйста подожди."
+    # Добавляем задачу в очередь с высоким приоритетом
+    task_queue = message.bot.task_queue
+    await task_queue.add_task(
+        task_type="add_product",
+        url=url,
+        priority=1,  # Высокий приоритет
+        user_id=user.id
     )
 
-    logger.info(f"Начало парсинга товара: {url}")
+    await message.answer(
+        "⏳ Товар добавлен в очередь обработки.\n"
+        "Это может занять до 5 минут, ожидайте уведомления."
+    )
 
-    # Пытаемся спарсить товар до 3 раз
-    max_attempts = 3
-    product_name = None
-    price = None
-
-    for attempt in range(1, max_attempts + 1):
-        logger.info(f"Попытка парсинга {attempt}/{max_attempts}")
-
-        if attempt > 1:
-            await status_msg.edit_text(
-                f"⏳ Попытка {attempt}/{max_attempts}...\n"
-                "Пожалуйста подожди."
-            )
-
-        product_name, price = await scrape_ozon_product(url)
-
-        if product_name and price:
-            logger.info(f"Товар успешно спарсен на попытке {attempt}: {product_name}, цена: {price}")
-            break
-        else:
-            logger.warning(f"Попытка {attempt} не удалась")
-            if attempt < max_attempts:
-                await asyncio.sleep(2)
-
-    if product_name and price:
-        # Извлекаем число из строки цены "12345 ₽"
-        price_match = re.search(r'(\d+)', price)
-        if price_match:
-            price_int = int(price_match.group(1))
-
-            # Сохраняем в БД
-            logger.info(f"Сохранение товара в БД: {product_name}")
-            product_id = await add_product(url, product_name, price_int, user.id)
-
-            if product_id:
-                logger.info(f"Товар успешно добавлен в БД с ID: {product_id}")
-                await status_msg.edit_text(
-                    f"✅ Товар добавлен!\n\n"
-                    f"Название: {product_name}\n"
-                    f"Цена: {price}"
-                )
-            else:
-                logger.warning(f"Товар уже существует в БД для пользователя {user.id}: {url}")
-                await status_msg.edit_text("⚠️ Этот товар уже добавлен в твой список.")
-        else:
-            logger.error(f"Ошибка при обработке цены: {price}")
-            await status_msg.edit_text("Ошибка при обработке цены.")
-    else:
-        logger.error(f"Не удалось спарсить товар после {max_attempts} попыток: {url}")
-        await status_msg.edit_text(
-            f"❌ Не удалось получить данные о товаре после {max_attempts} попыток.\n\n"
-            "Возможные причины:\n"
-            "- Обнаружена капча (требуется ручное решение)\n"
-            "- Неверная ссылка\n"
-            "- Товар недоступен"
-        )
-
+    logger.info(f"Задача добавления товара добавлена в очередь для пользователя {user.id}")
     await state.clear()
 
 
@@ -146,6 +99,27 @@ async def list_positions(message: types.Message):
         "📋 Список отслеживаемых товаров:",
         reply_markup=get_products_keyboard(products)
     )
+
+
+# Обработчик кнопки "🔄 Обновить цены" (только для админа)
+@main_router.message(F.text == "🔄 Обновить цены")
+async def manual_update_prices(message: types.Message):
+    user = message.from_user
+
+    if user.id != ADMIN_ID:
+        logger.warning(f"Попытка доступа к админ-функции от пользователя {user.id}")
+        return
+
+    logger.info(f"Админ {user.id} запустил ручное обновление цен")
+
+    task_queue = message.bot.task_queue
+    await update_all_prices(task_queue)
+
+    await message.answer(
+        "✅ Все товары добавлены в очередь обновления!\n"
+        "Обновление будет выполнено в фоновом режиме."
+    )
+    logger.info(f"Ручное обновление цен: товары добавлены в очередь")
 
 
 # Эхо-обработчик (теперь он должен быть последним)

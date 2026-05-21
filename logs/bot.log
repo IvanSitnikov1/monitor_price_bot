@@ -1660,3 +1660,433 @@ playwright._impl._errors.TargetClosedError: Page.content: Target page, context o
 2026-05-21 11:07:43 | WARNING  | aiogram.dispatcher | Received SIGINT signal
 2026-05-21 11:07:43 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
 2026-05-21 11:07:43 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-21 11:20:20 | INFO     | root | Логирование настроено
+2026-05-21 11:20:20 | INFO     | root | Уровень логирования: INFO
+2026-05-21 11:20:20 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-21 11:20:20 | INFO     | __main__ | ============================================================
+2026-05-21 11:20:20 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-21 11:20:20 | INFO     | __main__ | ============================================================
+2026-05-21 11:20:20 | INFO     | __main__ | Инициализация базы данных...
+2026-05-21 11:20:20 | INFO     | __main__ | База данных готова
+2026-05-21 11:20:20 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 11:20:20 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 11:20:20 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-21 11:20:20 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-21 11:20:20 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-21 11:20:20 | INFO     | __main__ | Планировщик задач запущен
+2026-05-21 11:20:20 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-21 11:20:20 | INFO     | __main__ | Удаление вебхуков...
+2026-05-21 11:20:20 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-21 11:20:20 | INFO     | __main__ | Запуск polling...
+2026-05-21 11:20:20 | INFO     | __main__ | Бот готов к работе!
+2026-05-21 11:20:20 | INFO     | aiogram.dispatcher | Start polling
+2026-05-21 11:20:20 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 11:20:24 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-21 11:20:24 | INFO     | handlers.handlers | Найдено товаров в БД для пользователя 1189033386: 2
+2026-05-21 11:20:24 | INFO     | aiogram.event | Update id=624238513 is handled. Duration 395 ms by bot id=5827679864
+2026-05-21 11:20:26 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-21 11:20:26 | INFO     | aiogram.event | Update id=624238514 is handled. Duration 80 ms by bot id=5827679864
+2026-05-21 11:20:31 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/lwDqTZ3
+2026-05-21 11:20:31 | INFO     | handlers.handlers | Начало парсинга товара: https://ozon.ru/t/lwDqTZ3
+2026-05-21 11:20:31 | INFO     | handlers.handlers | Попытка парсинга 1/3
+2026-05-21 11:20:31 | INFO     | utils.scraper | Начало процесса для ссылки: https://ozon.ru/t/lwDqTZ3
+2026-05-21 11:20:41 | INFO     | utils.scraper | Название: Джинсы VACANT женские
+2026-05-21 11:20:41 | INFO     | utils.scraper | Итоговая цена: 3523 ₽
+2026-05-21 11:20:41 | INFO     | handlers.handlers | Товар успешно спарсен на попытке 1: Джинсы VACANT женские, цена: 3523 ₽
+2026-05-21 11:20:41 | INFO     | handlers.handlers | Сохранение товара в БД: Джинсы VACANT женские
+2026-05-21 11:20:41 | INFO     | handlers.handlers | Товар успешно добавлен в БД с ID: 18
+2026-05-21 11:20:41 | INFO     | aiogram.event | Update id=624238515 is handled. Duration 10757 ms by bot id=5827679864
+2026-05-21 11:20:46 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-21 11:20:46 | INFO     | handlers.handlers | Найдено товаров в БД для пользователя 1189033386: 3
+2026-05-21 11:20:46 | INFO     | aiogram.event | Update id=624238516 is handled. Duration 131 ms by bot id=5827679864
+2026-05-21 11:20:47 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 18
+2026-05-21 11:20:47 | INFO     | aiogram.event | Update id=624238517 is handled. Duration 156 ms by bot id=5827679864
+2026-05-21 11:20:48 | INFO     | handlers.handlers | Пользователь 1189033386 удаляет товар ID: 18
+2026-05-21 11:20:48 | INFO     | handlers.handlers | Товар ID 18 успешно удален для пользователя 1189033386
+2026-05-21 11:20:48 | INFO     | aiogram.event | Update id=624238518 is handled. Duration 168 ms by bot id=5827679864
+2026-05-21 11:24:09 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-21 11:24:09 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 11:24:09 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-21 12:42:04 | INFO     | root | Логирование настроено
+2026-05-21 12:42:04 | INFO     | root | Уровень логирования: INFO
+2026-05-21 12:42:04 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-21 12:42:04 | INFO     | __main__ | ============================================================
+2026-05-21 12:42:04 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-21 12:42:04 | INFO     | __main__ | ============================================================
+2026-05-21 12:42:04 | INFO     | __main__ | Инициализация базы данных...
+2026-05-21 12:42:04 | INFO     | __main__ | База данных готова
+2026-05-21 12:42:04 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 12:42:04 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 12:42:04 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-21 12:42:04 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-21 12:42:04 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-21 12:42:04 | INFO     | __main__ | Планировщик задач запущен
+2026-05-21 12:42:04 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-21 12:42:04 | INFO     | __main__ | Удаление вебхуков...
+2026-05-21 12:42:04 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-21 12:42:04 | INFO     | __main__ | Запуск polling...
+2026-05-21 12:42:04 | INFO     | __main__ | Бот готов к работе!
+2026-05-21 12:42:04 | INFO     | aiogram.dispatcher | Start polling
+2026-05-21 12:42:05 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 12:44:04 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-21 12:44:04 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 12:44:04 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-21 12:44:08 | INFO     | root | Логирование настроено
+2026-05-21 12:44:08 | INFO     | root | Уровень логирования: INFO
+2026-05-21 12:44:08 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-21 12:44:08 | INFO     | __main__ | ============================================================
+2026-05-21 12:44:08 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-21 12:44:08 | INFO     | __main__ | ============================================================
+2026-05-21 12:44:08 | INFO     | __main__ | Инициализация базы данных...
+2026-05-21 12:44:08 | INFO     | __main__ | База данных готова
+2026-05-21 12:44:08 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 12:44:08 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 12:44:08 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-21 12:44:08 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-21 12:44:08 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-21 12:44:08 | INFO     | __main__ | Планировщик задач запущен
+2026-05-21 12:44:08 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-21 12:44:08 | INFO     | __main__ | Удаление вебхуков...
+2026-05-21 12:44:08 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-21 12:44:08 | INFO     | __main__ | Запуск polling...
+2026-05-21 12:44:08 | INFO     | __main__ | Бот готов к работе!
+2026-05-21 12:44:08 | INFO     | aiogram.dispatcher | Start polling
+2026-05-21 12:44:08 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 12:44:28 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-21 12:44:28 | INFO     | handlers.handlers | Найдено товаров в БД для пользователя 1189033386: 2
+2026-05-21 12:44:29 | INFO     | aiogram.event | Update id=624238534 is handled. Duration 371 ms by bot id=5827679864
+2026-05-21 12:45:42 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-21 12:45:42 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 12:45:42 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-21 12:45:45 | INFO     | root | Логирование настроено
+2026-05-21 12:45:45 | INFO     | root | Уровень логирования: INFO
+2026-05-21 12:45:45 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-21 12:45:45 | INFO     | __main__ | ============================================================
+2026-05-21 12:45:45 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-21 12:45:45 | INFO     | __main__ | ============================================================
+2026-05-21 12:45:45 | INFO     | __main__ | Инициализация базы данных...
+2026-05-21 12:45:45 | INFO     | __main__ | База данных готова
+2026-05-21 12:45:45 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 12:45:45 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 12:45:45 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-21 12:45:45 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-21 12:45:45 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-21 12:45:45 | INFO     | __main__ | Планировщик задач запущен
+2026-05-21 12:45:45 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-21 12:45:45 | INFO     | __main__ | Удаление вебхуков...
+2026-05-21 12:45:45 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-21 12:45:45 | INFO     | __main__ | Запуск polling...
+2026-05-21 12:45:45 | INFO     | __main__ | Бот готов к работе!
+2026-05-21 12:45:45 | INFO     | aiogram.dispatcher | Start polling
+2026-05-21 12:45:45 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 12:45:46 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-21 12:45:46 | INFO     | handlers.handlers | Найдено товаров в БД для пользователя 1189033386: 2
+2026-05-21 12:45:47 | INFO     | aiogram.event | Update id=624238535 is handled. Duration 291 ms by bot id=5827679864
+2026-05-21 12:47:58 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-21 12:47:58 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 12:47:58 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-21 12:48:02 | INFO     | root | Логирование настроено
+2026-05-21 12:48:02 | INFO     | root | Уровень логирования: INFO
+2026-05-21 12:48:02 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-21 12:48:02 | INFO     | __main__ | ============================================================
+2026-05-21 12:48:02 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-21 12:48:02 | INFO     | __main__ | ============================================================
+2026-05-21 12:48:02 | INFO     | __main__ | Инициализация базы данных...
+2026-05-21 12:48:02 | INFO     | __main__ | База данных готова
+2026-05-21 12:48:02 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 12:48:02 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 12:48:02 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-21 12:48:02 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-21 12:48:02 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-21 12:48:02 | INFO     | __main__ | Планировщик задач запущен
+2026-05-21 12:48:02 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-21 12:48:02 | INFO     | __main__ | Удаление вебхуков...
+2026-05-21 12:48:02 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-21 12:48:02 | INFO     | __main__ | Запуск polling...
+2026-05-21 12:48:02 | INFO     | __main__ | Бот готов к работе!
+2026-05-21 12:48:02 | INFO     | aiogram.dispatcher | Start polling
+2026-05-21 12:48:02 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 12:48:07 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-21 12:48:07 | INFO     | handlers.handlers | Найдено товаров в БД для пользователя 1189033386: 2
+2026-05-21 12:48:07 | INFO     | aiogram.event | Update id=624238536 is handled. Duration 279 ms by bot id=5827679864
+2026-05-21 12:48:11 | INFO     | handlers.handlers | Команда /start от пользователя 1189033386 (@Ivanches1)
+2026-05-21 12:48:12 | INFO     | aiogram.event | Update id=624238537 is handled. Duration 92 ms by bot id=5827679864
+2026-05-21 12:48:14 | INFO     | handlers.handlers | Админ 1189033386 запустил ручное обновление цен
+2026-05-21 12:48:14 | INFO     | utils.price_updater | ============================================================
+2026-05-21 12:48:14 | INFO     | utils.price_updater | Начало обновления цен: 2026-05-21 12:48:14
+2026-05-21 12:48:14 | INFO     | utils.price_updater | ============================================================
+2026-05-21 12:48:14 | INFO     | utils.price_updater | Найдено товаров для обновления: 4
+2026-05-21 12:48:14 | INFO     | utils.price_updater | 
+[1/4] Обрабатываю: Шорты карго MOTTON...
+2026-05-21 12:48:14 | INFO     | utils.price_updater | Задержка перед запросом: 0.96 сек
+2026-05-21 12:48:15 | INFO     | utils.price_updater | Попытка 1/3...
+2026-05-21 12:48:15 | INFO     | utils.scraper | Начало процесса для ссылки: https://ozon.ru/t/lwD2UYz
+2026-05-21 12:48:25 | INFO     | utils.scraper | Название: Шорты карго MOTTON
+2026-05-21 12:48:25 | INFO     | utils.scraper | Итоговая цена: 3106 ₽
+2026-05-21 12:48:25 | INFO     | utils.price_updater | ✅ Успешно обновлено! Новая цена: 3106 ₽
+2026-05-21 12:48:25 | INFO     | utils.price_updater | 
+[2/4] Обрабатываю: Сандалии Kari мужские летние текстильные с пряжкой...
+2026-05-21 12:48:25 | INFO     | utils.price_updater | Задержка перед запросом: 2.68 сек
+2026-05-21 12:48:27 | INFO     | utils.price_updater | Попытка 1/3...
+2026-05-21 12:48:27 | INFO     | utils.scraper | Начало процесса для ссылки: https://ozon.ru/t/oftOPEU
+2026-05-21 12:48:35 | INFO     | utils.scraper | Название: Сандалии Kari мужские летние текстильные с пряжкой
+2026-05-21 12:48:35 | INFO     | utils.scraper | Итоговая цена: 2178 ₽
+2026-05-21 12:48:35 | INFO     | utils.price_updater | ✅ Успешно обновлено! Новая цена: 2178 ₽
+2026-05-21 12:48:35 | INFO     | utils.price_updater | 
+[3/4] Обрабатываю: Герметик-прокладка серый высокотемпературный для а...
+2026-05-21 12:48:35 | INFO     | utils.price_updater | Задержка перед запросом: 1.50 сек
+2026-05-21 12:48:37 | INFO     | utils.price_updater | Попытка 1/3...
+2026-05-21 12:48:37 | INFO     | utils.scraper | Начало процесса для ссылки: https://ozon.ru/t/nPJZlO7
+2026-05-21 12:48:46 | INFO     | utils.scraper | Название: Герметик-прокладка серый высокотемпературный для автомобиля и ремонта Grey, 85 г / Ln1739
+2026-05-21 12:48:46 | INFO     | utils.scraper | Итоговая цена: 282 ₽
+2026-05-21 12:48:46 | INFO     | utils.price_updater | ✅ Успешно обновлено! Новая цена: 282 ₽
+2026-05-21 12:48:46 | INFO     | utils.price_updater | 
+[4/4] Обрабатываю: Герметик-прокладка красный высокотемпературный для...
+2026-05-21 12:48:46 | INFO     | utils.price_updater | Задержка перед запросом: 2.72 сек
+2026-05-21 12:48:49 | INFO     | utils.price_updater | Попытка 1/3...
+2026-05-21 12:48:49 | INFO     | utils.scraper | Начало процесса для ссылки: https://ozon.ru/t/HDINfr5
+2026-05-21 12:48:57 | INFO     | utils.scraper | Название: Герметик-прокладка красный высокотемпературный для автомобиля и ремонта Red LAVR, 85 г / Ln1737
+2026-05-21 12:48:57 | INFO     | utils.scraper | Итоговая цена: 278 ₽
+2026-05-21 12:48:57 | INFO     | utils.price_updater | ✅ Успешно обновлено! Новая цена: 278 ₽
+2026-05-21 12:48:57 | INFO     | utils.price_updater | 
+============================================================
+2026-05-21 12:48:57 | INFO     | utils.price_updater | ИТОГИ ОБНОВЛЕНИЯ
+2026-05-21 12:48:57 | INFO     | utils.price_updater | ============================================================
+2026-05-21 12:48:57 | INFO     | utils.price_updater | Всего товаров: 4
+2026-05-21 12:48:57 | INFO     | utils.price_updater | Успешно обновлено: 4
+2026-05-21 12:48:57 | INFO     | utils.price_updater | Не удалось обновить: 0
+2026-05-21 12:48:57 | INFO     | utils.price_updater | 
+Завершено: 2026-05-21 12:48:57
+2026-05-21 12:48:57 | INFO     | utils.price_updater | ============================================================
+2026-05-21 12:48:57 | INFO     | handlers.handlers | Ручное обновление цен завершено успешно
+2026-05-21 12:48:57 | INFO     | aiogram.event | Update id=624238538 is handled. Duration 43114 ms by bot id=5827679864
+2026-05-21 12:49:13 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-21 12:49:13 | INFO     | handlers.handlers | Найдено товаров в БД для пользователя 1189033386: 2
+2026-05-21 12:49:13 | INFO     | aiogram.event | Update id=624238539 is handled. Duration 106 ms by bot id=5827679864
+2026-05-21 12:49:15 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 10
+2026-05-21 12:49:15 | INFO     | aiogram.event | Update id=624238540 is handled. Duration 282 ms by bot id=5827679864
+2026-05-21 12:49:21 | INFO     | handlers.handlers | Пользователь 1189033386 запросил историю цен товара ID: 10
+2026-05-21 12:49:21 | INFO     | aiogram.event | Update id=624238541 is handled. Duration 187 ms by bot id=5827679864
+2026-05-21 12:49:27 | INFO     | handlers.handlers | Пользователь 1189033386 запросил детали товара ID: 9
+2026-05-21 12:49:28 | INFO     | aiogram.event | Update id=624238542 is handled. Duration 266 ms by bot id=5827679864
+2026-05-21 12:49:28 | INFO     | handlers.handlers | Пользователь 1189033386 запросил историю цен товара ID: 9
+2026-05-21 12:49:29 | INFO     | aiogram.event | Update id=624238543 is handled. Duration 210 ms by bot id=5827679864
+2026-05-21 13:06:01 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-21 13:06:01 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 13:06:01 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-21 13:06:05 | INFO     | root | Логирование настроено
+2026-05-21 13:06:05 | INFO     | root | Уровень логирования: INFO
+2026-05-21 13:06:05 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-21 13:06:05 | INFO     | __main__ | ============================================================
+2026-05-21 13:06:05 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-21 13:06:05 | INFO     | __main__ | ============================================================
+2026-05-21 13:06:05 | INFO     | __main__ | Инициализация базы данных...
+2026-05-21 13:06:05 | INFO     | __main__ | База данных готова
+2026-05-21 13:06:05 | INFO     | __main__ | Инициализация очереди задач...
+2026-05-21 13:06:05 | INFO     | utils.queue_worker | Файл очереди не найден, начинаем с пустой очереди
+2026-05-21 13:06:05 | INFO     | utils.queue_worker | Воркер очереди запущен
+2026-05-21 13:06:05 | INFO     | __main__ | Очередь задач запущена
+2026-05-21 13:06:05 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 13:06:05 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 13:06:05 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-21 13:06:05 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-21 13:06:05 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-21 13:06:05 | INFO     | __main__ | Планировщик задач запущен
+2026-05-21 13:06:05 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-21 13:06:05 | INFO     | __main__ | Удаление вебхуков...
+2026-05-21 13:06:05 | INFO     | utils.queue_worker | Воркер начал обработку задач
+2026-05-21 13:06:05 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-21 13:06:05 | INFO     | __main__ | Запуск polling...
+2026-05-21 13:06:05 | INFO     | __main__ | Бот готов к работе!
+2026-05-21 13:06:05 | INFO     | aiogram.dispatcher | Start polling
+2026-05-21 13:06:05 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 13:06:09 | INFO     | handlers.handlers | Пользователь 1189033386 запросил список товаров
+2026-05-21 13:06:09 | INFO     | handlers.handlers | Найдено товаров в БД для пользователя 1189033386: 2
+2026-05-21 13:06:09 | INFO     | aiogram.event | Update id=624238544 is handled. Duration 201 ms by bot id=5827679864
+2026-05-21 13:06:20 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-21 13:06:20 | INFO     | aiogram.event | Update id=624238545 is handled. Duration 128 ms by bot id=5827679864
+2026-05-21 13:06:24 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/lwDqTZ3
+2026-05-21 13:06:24 | INFO     | utils.queue_worker | Задача добавлена в очередь: add_product, приоритет=1, очередь=1
+2026-05-21 13:06:24 | INFO     | utils.queue_worker | Обработка задачи: add_product, приоритет=1, осталось в очереди=0
+2026-05-21 13:06:24 | INFO     | utils.queue_worker | Попытка парсинга 1/3: https://ozon.ru/t/lwDqTZ3
+2026-05-21 13:06:24 | INFO     | utils.scraper | Начало процесса для ссылки: https://ozon.ru/t/lwDqTZ3
+2026-05-21 13:06:24 | INFO     | handlers.handlers | Задача добавления товара добавлена в очередь для пользователя 1189033386
+2026-05-21 13:06:24 | INFO     | aiogram.event | Update id=624238546 is handled. Duration 83 ms by bot id=5827679864
+2026-05-21 13:06:28 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (0/30с)
+2026-05-21 13:06:30 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (2/30с)
+2026-05-21 13:06:32 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (4/30с)
+2026-05-21 13:06:34 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (6/30с)
+2026-05-21 13:06:36 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (8/30с)
+2026-05-21 13:06:38 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (10/30с)
+2026-05-21 13:06:40 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (12/30с)
+2026-05-21 13:06:42 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (14/30с)
+2026-05-21 13:06:44 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (16/30с)
+2026-05-21 13:06:46 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (18/30с)
+2026-05-21 13:06:48 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (20/30с)
+2026-05-21 13:06:50 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (22/30с)
+2026-05-21 13:06:52 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (24/30с)
+2026-05-21 13:06:54 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (26/30с)
+2026-05-21 13:06:56 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (28/30с)
+2026-05-21 13:06:58 | ERROR    | utils.scraper | Не удалось пройти проверку системы за отведенное время
+2026-05-21 13:06:59 | WARNING  | utils.queue_worker | Попытка 1 не удалась
+2026-05-21 13:07:04 | INFO     | utils.queue_worker | Попытка парсинга 2/3: https://ozon.ru/t/lwDqTZ3
+2026-05-21 13:07:04 | INFO     | utils.scraper | Начало процесса для ссылки: https://ozon.ru/t/lwDqTZ3
+2026-05-21 13:07:08 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (0/30с)
+2026-05-21 13:07:10 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (2/30с)
+2026-05-21 13:07:12 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (4/30с)
+2026-05-21 13:07:14 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (6/30с)
+2026-05-21 13:07:16 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (8/30с)
+2026-05-21 13:07:18 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (10/30с)
+2026-05-21 13:07:20 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (12/30с)
+2026-05-21 13:07:22 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (14/30с)
+2026-05-21 13:07:24 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (16/30с)
+2026-05-21 13:07:26 | ERROR    | utils.queue_worker | Ошибка при обработке задачи add_product: Page.content: Target page, context or browser has been closed
+Traceback (most recent call last):
+  File "/home/ivans/projects/monitor_price_bot/utils/queue_worker.py", line 138, in _process_task
+    product_name, price = await scrape_ozon_product(url)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/utils/scraper.py", line 57, in scrape_ozon_product
+    content = await page.content()
+              ^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/async_api/_generated.py", line 9509, in content
+    return mapping.from_maybe_impl(await self._impl_obj.content())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_page.py", line 540, in content
+    return await self._main_frame.content()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_frame.py", line 478, in content
+    return await self._channel.send("content", None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_connection.py", line 69, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_connection.py", line 559, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TargetClosedError: Page.content: Target page, context or browser has been closed
+2026-05-21 13:07:26 | INFO     | utils.queue_worker | Задержка перед следующей задачей: 3.14 сек
+2026-05-21 13:07:42 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-21 13:07:43 | INFO     | aiogram.event | Update id=624238547 is handled. Duration 81 ms by bot id=5827679864
+2026-05-21 13:07:45 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/lwDqTZ3
+2026-05-21 13:07:45 | INFO     | utils.queue_worker | Задача добавлена в очередь: add_product, приоритет=1, очередь=1
+2026-05-21 13:07:45 | INFO     | utils.queue_worker | Обработка задачи: add_product, приоритет=1, осталось в очереди=0
+2026-05-21 13:07:45 | INFO     | utils.queue_worker | Попытка парсинга 1/3: https://ozon.ru/t/lwDqTZ3
+2026-05-21 13:07:45 | INFO     | utils.scraper | Начало процесса для ссылки: https://ozon.ru/t/lwDqTZ3
+2026-05-21 13:07:45 | INFO     | handlers.handlers | Задача добавления товара добавлена в очередь для пользователя 1189033386
+2026-05-21 13:07:45 | INFO     | aiogram.event | Update id=624238548 is handled. Duration 88 ms by bot id=5827679864
+2026-05-21 13:07:49 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (0/30с)
+2026-05-21 13:07:51 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (2/30с)
+2026-05-21 13:07:53 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (4/30с)
+2026-05-21 13:07:55 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (6/30с)
+2026-05-21 13:07:58 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (8/30с)
+2026-05-21 13:08:00 | ERROR    | utils.queue_worker | Ошибка при обработке задачи add_product: Page.content: Target page, context or browser has been closed
+Traceback (most recent call last):
+  File "/home/ivans/projects/monitor_price_bot/utils/queue_worker.py", line 138, in _process_task
+    product_name, price = await scrape_ozon_product(url)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/utils/scraper.py", line 57, in scrape_ozon_product
+    content = await page.content()
+              ^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/async_api/_generated.py", line 9509, in content
+    return mapping.from_maybe_impl(await self._impl_obj.content())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_page.py", line 540, in content
+    return await self._main_frame.content()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_frame.py", line 478, in content
+    return await self._channel.send("content", None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_connection.py", line 69, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_connection.py", line 559, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TargetClosedError: Page.content: Target page, context or browser has been closed
+2026-05-21 13:08:00 | INFO     | utils.queue_worker | Задержка перед следующей задачей: 4.08 сек
+2026-05-21 13:08:04 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-21 13:08:04 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 13:08:04 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-21 13:08:04 | INFO     | __main__ | Остановка очереди задач...
+2026-05-21 13:08:04 | INFO     | utils.queue_worker | Очередь сохранена на диск: 0 задач
+2026-05-21 13:08:04 | INFO     | utils.queue_worker | Воркер очереди остановлен
+2026-05-21 13:08:04 | INFO     | __main__ | Очередь задач остановлена
+2026-05-21 13:35:42 | INFO     | root | Логирование настроено
+2026-05-21 13:35:42 | INFO     | root | Уровень логирования: INFO
+2026-05-21 13:35:42 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-21 13:35:42 | INFO     | __main__ | ============================================================
+2026-05-21 13:35:42 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-21 13:35:42 | INFO     | __main__ | ============================================================
+2026-05-21 13:35:42 | INFO     | __main__ | Инициализация базы данных...
+2026-05-21 13:35:42 | INFO     | __main__ | База данных готова
+2026-05-21 13:35:42 | INFO     | __main__ | Инициализация очереди задач...
+2026-05-21 13:35:42 | INFO     | utils.queue_worker | Очередь загружена с диска: 0 задач
+2026-05-21 13:35:42 | INFO     | utils.queue_worker | Воркер очереди запущен
+2026-05-21 13:35:42 | INFO     | __main__ | Очередь задач запущена
+2026-05-21 13:35:42 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 13:35:42 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 13:35:42 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-21 13:35:42 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-21 13:35:42 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-21 13:35:42 | INFO     | __main__ | Планировщик задач запущен
+2026-05-21 13:35:42 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-21 13:35:42 | INFO     | __main__ | Удаление вебхуков...
+2026-05-21 13:35:42 | INFO     | utils.queue_worker | Воркер начал обработку задач
+2026-05-21 13:35:42 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-21 13:35:42 | INFO     | __main__ | Запуск polling...
+2026-05-21 13:35:42 | INFO     | __main__ | Бот готов к работе!
+2026-05-21 13:35:42 | INFO     | aiogram.dispatcher | Start polling
+2026-05-21 13:35:42 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 13:35:48 | INFO     | handlers.handlers | Пользователь 1189033386 начал добавление товара
+2026-05-21 13:35:49 | INFO     | aiogram.event | Update id=624238549 is handled. Duration 224 ms by bot id=5827679864
+2026-05-21 13:35:56 | INFO     | handlers.handlers | Пользователь 1189033386 отправил ссылку: https://ozon.ru/t/lwDqTZ3
+2026-05-21 13:35:56 | INFO     | utils.queue_worker | Задача добавлена в очередь: add_product, приоритет=1, очередь=1
+2026-05-21 13:35:56 | INFO     | utils.queue_worker | Обработка задачи: add_product, приоритет=1, осталось в очереди=0
+2026-05-21 13:35:56 | INFO     | utils.queue_worker | Попытка парсинга 1/3: https://ozon.ru/t/lwDqTZ3
+2026-05-21 13:35:56 | INFO     | utils.scraper | Начало процесса для ссылки: https://ozon.ru/t/lwDqTZ3
+2026-05-21 13:35:56 | INFO     | handlers.handlers | Задача добавления товара добавлена в очередь для пользователя 1189033386
+2026-05-21 13:35:56 | INFO     | aiogram.event | Update id=624238550 is handled. Duration 84 ms by bot id=5827679864
+2026-05-21 13:36:00 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (0/30с)
+2026-05-21 13:36:02 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (2/30с)
+2026-05-21 13:36:04 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (4/30с)
+2026-05-21 13:36:06 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (6/30с)
+2026-05-21 13:36:08 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (8/30с)
+2026-05-21 13:36:10 | WARNING  | utils.scraper | Обнаружена проверка (капча), ждем... (10/30с)
+2026-05-21 13:36:12 | ERROR    | utils.queue_worker | Ошибка при обработке задачи add_product: Page.content: Target page, context or browser has been closed
+Traceback (most recent call last):
+  File "/home/ivans/projects/monitor_price_bot/utils/queue_worker.py", line 138, in _process_task
+    product_name, price = await scrape_ozon_product(url)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/utils/scraper.py", line 57, in scrape_ozon_product
+    content = await page.content()
+              ^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/async_api/_generated.py", line 9509, in content
+    return mapping.from_maybe_impl(await self._impl_obj.content())
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_page.py", line 540, in content
+    return await self._main_frame.content()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_frame.py", line 478, in content
+    return await self._channel.send("content", None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_connection.py", line 69, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/ivans/projects/monitor_price_bot/.venv/lib/python3.14/site-packages/playwright/_impl/_connection.py", line 559, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TargetClosedError: Page.content: Target page, context or browser has been closed
+2026-05-21 13:36:12 | INFO     | utils.queue_worker | Задержка перед следующей задачей: 3.36 сек
+2026-05-21 13:36:20 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-21 13:36:20 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 13:36:20 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-21 13:36:20 | INFO     | __main__ | Остановка очереди задач...
+2026-05-21 13:36:20 | INFO     | utils.queue_worker | Очередь сохранена на диск: 0 задач
+2026-05-21 13:36:20 | INFO     | utils.queue_worker | Воркер очереди остановлен
+2026-05-21 13:36:20 | INFO     | __main__ | Очередь задач остановлена

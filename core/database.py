@@ -212,6 +212,26 @@ async def get_product_details(product_id: int, user_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+async def get_all_products_for_update() -> list[dict]:
+    """
+    Получает список всех товаров для фонового обновления цен.
+
+    Returns:
+        Список словарей с полями: id, url, name
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute("""
+            SELECT id, url, name
+            FROM products
+            ORDER BY id
+        """)
+
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
 async def get_price_history(product_id: int) -> list[dict]:
     """
     Получает всю историю цен товара.

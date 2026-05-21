@@ -10,3 +10,17 @@ main_kb = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True,
 )
+
+
+admin_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [
+            KeyboardButton(text="Добавить позицию"),
+            KeyboardButton(text="Список позиций"),
+        ],
+        [
+            KeyboardButton(text="🔄 Обновить цены"),
+        ]
+    ],
+    resize_keyboard=True,
+)
