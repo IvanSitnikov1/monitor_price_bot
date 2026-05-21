@@ -7,7 +7,12 @@ from datetime import datetime
 from typing import Literal
 
 from utils.scraper import scrape_ozon_product
-from core.database import add_product, update_product_price
+from core.database import (
+    add_product,
+    update_product_price,
+    get_min_price,
+    get_product_subscribers
+)
 
 
 logger = logging.getLogger(__name__)
@@ -64,7 +69,8 @@ class TaskQueue:
         priority: int = 2,
         user_id: int | None = None,
         product_id: int | None = None,
-        product_name: str | None = None
+        product_name: str | None = None,
+        marketplace: str | None = None
     ):
         """
         Добавляет задачу в очередь.
@@ -76,6 +82,7 @@ class TaskQueue:
             user_id: ID пользователя (для add_product)
             product_id: ID товара в БД (для update_price)
             product_name: Название товара (для логов)
+            marketplace: Маркетплейс товара (для add_product)
         """
         task = {
             "type": task_type,
@@ -83,6 +90,7 @@ class TaskQueue:
             "user_id": user_id,
             "product_id": product_id,
             "product_name": product_name,
+            "marketplace": marketplace,
             "added_at": datetime.now().isoformat()
         }
 
@@ -166,6 +174,7 @@ class TaskQueue:
         """Обрабатывает задачу добавления товара"""
         user_id = task["user_id"]
         url = task["url"]
+        marketplace = task.get("marketplace", "ozon")
 
         if not product_name or not price:
             logger.error(f"Не удалось спарсить товар после 3 попыток: {url}")
@@ -189,9 +198,13 @@ class TaskQueue:
 
         price_int = int(price_match.group(1))
 
+        # Импортируем Marketplace для создания enum
+        from core.models import Marketplace
+        marketplace_enum = Marketplace(marketplace)
+
         # Сохраняем в БД
         logger.info(f"Сохранение товара в БД: {product_name}")
-        product_id = await add_product(url, product_name, price_int, user_id)
+        product_id = await add_product(url, product_name, price_int, user_id, marketplace_enum)
 
         if product_id:
             logger.info(f"Товар успешно добавлен в БД с ID: {product_id}")
@@ -222,8 +235,42 @@ class TaskQueue:
             return
 
         price_int = int(price_match.group(1))
+
+        # Получаем минимальную цену до обновления
+        min_price_before = await get_min_price(product_id)
+
+        # Обновляем цену в БД
         await update_product_price(product_id, price_int)
         logger.info(f"✅ Цена обновлена для {product_display_name}: {price_int} ₽")
+
+        # Проверяем, упала ли цена ниже минимальной
+        if min_price_before and price_int < min_price_before:
+            logger.info(
+                f"🔔 Цена упала ниже минимальной! "
+                f"Было: {min_price_before} ₽, стало: {price_int} ₽"
+            )
+
+            # Получаем всех подписчиков товара
+            subscribers = await get_product_subscribers(product_id)
+            logger.info(f"Отправка уведомлений {len(subscribers)} подписчикам")
+
+            # Отправляем уведомления всем подписчикам
+            for user_id in subscribers:
+                try:
+                    notification_text = (
+                        f"🔔 Цена снизилась!\n\n"
+                        f"📦 {product_display_name}\n\n"
+                        f"💰 Новая цена: {price_int} ₽\n"
+                        f"📉 Было минимум: {min_price_before} ₽\n"
+                        f"💵 Экономия: {min_price_before - price_int} ₽"
+                    )
+
+                    await self.bot.send_message(user_id, notification_text)
+                    logger.info(f"Уведомление отправлено пользователю {user_id}")
+                except Exception as e:
+                    logger.error(
+                        f"Не удалось отправить уведомление пользователю {user_id}: {e}"
+                    )
 
     async def _save_queue(self):
         """Сохраняет текущую очередь на диск"""

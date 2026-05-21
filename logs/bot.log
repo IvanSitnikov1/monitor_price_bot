@@ -2245,3 +2245,40 @@ playwright._impl._errors.TargetClosedError: Page.content: Target page, context o
 2026-05-21 16:00:20 | INFO     | utils.queue_worker | Очередь сохранена на диск: 0 задач
 2026-05-21 16:00:20 | INFO     | utils.queue_worker | Воркер очереди остановлен
 2026-05-21 16:00:20 | INFO     | __main__ | Очередь задач остановлена
+2026-05-21 18:41:27 | INFO     | root | Логирование настроено
+2026-05-21 18:41:27 | INFO     | root | Уровень логирования: INFO
+2026-05-21 18:41:27 | INFO     | root | Логи сохраняются в файл: logs/bot.log
+2026-05-21 18:41:27 | INFO     | __main__ | ============================================================
+2026-05-21 18:41:27 | INFO     | __main__ | Запуск бота мониторинга цен Ozon
+2026-05-21 18:41:27 | INFO     | __main__ | ============================================================
+2026-05-21 18:41:27 | INFO     | __main__ | Инициализация базы данных...
+2026-05-21 18:41:27 | INFO     | __main__ | База данных готова
+2026-05-21 18:41:27 | INFO     | __main__ | Инициализация очереди задач...
+2026-05-21 18:41:27 | INFO     | utils.queue_worker | Очередь загружена с диска: 0 задач
+2026-05-21 18:41:27 | INFO     | utils.queue_worker | Воркер очереди запущен
+2026-05-21 18:41:27 | INFO     | __main__ | Очередь задач запущена
+2026-05-21 18:41:27 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 18:41:27 | INFO     | apscheduler.scheduler | Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-21 18:41:27 | INFO     | apscheduler.scheduler | Added job "Обновление цен (ночь)" to job store "default"
+2026-05-21 18:41:27 | INFO     | apscheduler.scheduler | Added job "Обновление цен (день)" to job store "default"
+2026-05-21 18:41:27 | INFO     | apscheduler.scheduler | Scheduler started
+2026-05-21 18:41:27 | INFO     | __main__ | Планировщик задач запущен
+2026-05-21 18:41:27 | INFO     | __main__ | Обновление цен: 00:00 и 12:00 ежедневно
+2026-05-21 18:41:27 | INFO     | __main__ | Удаление вебхуков...
+2026-05-21 18:41:27 | INFO     | utils.queue_worker | Воркер начал обработку задач
+2026-05-21 18:41:27 | INFO     | __main__ | Регистрация обработчиков...
+2026-05-21 18:41:27 | INFO     | __main__ | Запуск polling...
+2026-05-21 18:41:27 | INFO     | __main__ | Бот готов к работе!
+2026-05-21 18:41:27 | INFO     | aiogram.dispatcher | Start polling
+2026-05-21 18:41:27 | INFO     | aiogram.dispatcher | Run polling for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 18:41:31 | ERROR    | aiogram.dispatcher | Failed to fetch updates - TelegramConflictError: Telegram server says - Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-05-21 18:41:31 | WARNING  | aiogram.dispatcher | Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 5827679864)
+2026-05-21 18:41:37 | ERROR    | aiogram.dispatcher | Failed to fetch updates - TelegramConflictError: Telegram server says - Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-05-21 18:41:37 | WARNING  | aiogram.dispatcher | Sleep for 1.294227 seconds and try again... (tryings = 1, bot id = 5827679864)
+2026-05-21 18:41:40 | WARNING  | aiogram.dispatcher | Received SIGINT signal
+2026-05-21 18:41:40 | INFO     | aiogram.dispatcher | Polling stopped for bot @EbooebobotBot id=5827679864 - 'EboboBot'
+2026-05-21 18:41:40 | INFO     | aiogram.dispatcher | Polling stopped
+2026-05-21 18:41:40 | INFO     | __main__ | Остановка очереди задач...
+2026-05-21 18:41:40 | INFO     | utils.queue_worker | Очередь сохранена на диск: 0 задач
+2026-05-21 18:41:40 | INFO     | utils.queue_worker | Воркер очереди остановлен
+2026-05-21 18:41:40 | INFO     | __main__ | Очередь задач остановлена

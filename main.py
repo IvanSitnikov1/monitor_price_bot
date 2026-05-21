@@ -4,9 +4,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import config
 
-# Создаем сессию с указанием прокси
-session = AiohttpSession(proxy=config.PROXY_URL)
+# Создаем сессию с прокси, если указан
+if config.PROXY_URL:
+    session = AiohttpSession(proxy=config.PROXY_URL)
+    bot = Bot(token=config.BOT_TOKEN, session=session)
+else:
+    bot = Bot(token=config.BOT_TOKEN)
 
-# Инициализируем бота с этой сессией
-bot = Bot(token=config.BOT_TOKEN, session=session)
 dp = Dispatcher(storage=MemoryStorage())

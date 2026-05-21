@@ -18,6 +18,8 @@ from core.database import (
     check_user_has_product
 )
 from utils.price_updater import update_all_prices
+from utils.link_parser import parse_product_link
+from core.models import Marketplace
 
 
 logger = logging.getLogger(__name__)
@@ -53,9 +55,33 @@ async def add_position(message: types.Message, state: FSMContext):
 @main_router.message(AddPosition.waiting_for_link, F.text)
 async def process_link(message: types.Message, state: FSMContext):
     user = message.from_user
-    url = message.text
+    text = message.text
 
-    logger.info(f"Пользователь {user.id} отправил ссылку: {url}")
+    logger.info(f"Пользователь {user.id} отправил текст: {text}")
+
+    # Извлекаем URL и определяем маркетплейс
+    url, marketplace = parse_product_link(text)
+
+    if not url or not marketplace:
+        logger.warning(f"Не удалось распарсить ссылку от пользователя {user.id}: {text}")
+        await message.answer(
+            "❌ Не удалось распознать ссылку на товар.\n"
+            "Поддерживаются маркетплейсы: Ozon, Wildberries, Avito.\n"
+            "Попробуй еще раз."
+        )
+        return
+
+    logger.info(f"Распознан маркетплейс: {marketplace.value}, URL: {url}")
+
+    # Проверяем, поддерживается ли маркетплейс (пока только Ozon)
+    if marketplace != Marketplace.OZON:
+        logger.info(f"Маркетплейс {marketplace.value} пока не поддерживается")
+        await message.answer(
+            f"🚧 Функционал для {marketplace.value.capitalize()} находится в разработке.\n"
+            f"Пока доступен только Ozon."
+        )
+        await state.clear()
+        return
 
     # Проверяем, не подписан ли пользователь уже на этот товар
     if await check_user_has_product(user.id, url):
@@ -69,6 +95,7 @@ async def process_link(message: types.Message, state: FSMContext):
     await task_queue.add_task(
         task_type="add_product",
         url=url,
+        marketplace=marketplace.value,
         priority=1,  # Высокий приоритет
         user_id=user.id
     )
@@ -97,7 +124,7 @@ async def list_positions(message: types.Message):
 
     await message.answer(
         "📋 Список отслеживаемых товаров:",
-        reply_markup=get_products_keyboard(products)
+        reply_markup=get_products_keyboard(products, marketplace_filter=None)
     )
 
 
@@ -159,6 +186,33 @@ async def show_product_details(callback: types.CallbackQuery):
     await callback.message.answer(
         text,
         reply_markup=get_product_detail_keyboard(product_id)
+    )
+    await callback.answer()
+
+
+# Обработчик фильтров маркетплейсов
+@main_router.callback_query(F.data.startswith("filter:"))
+async def filter_products(callback: types.CallbackQuery):
+    user = callback.from_user
+    filter_value = callback.data.split(":")[1]
+    logger.info(f"Пользователь {user.id} выбрал фильтр: {filter_value}")
+
+    # Определяем маркетплейс для фильтрации
+    marketplace = None if filter_value == "all" else filter_value
+
+    products = await get_all_products(user.id, marketplace=marketplace)
+    logger.info(f"Найдено товаров после фильтрации: {len(products)}")
+
+    if not products:
+        await callback.answer(
+            "Нет товаров для выбранного маркетплейса",
+            show_alert=True
+        )
+        return
+
+    await callback.message.edit_text(
+        "📋 Список отслеживаемых товаров:",
+        reply_markup=get_products_keyboard(products, marketplace_filter=marketplace)
     )
     await callback.answer()
 
