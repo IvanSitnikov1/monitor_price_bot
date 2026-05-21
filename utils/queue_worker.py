@@ -34,6 +34,7 @@ class TaskQueue:
         self.queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self.running = False
         self.worker_task = None
+        self.counter = 0  # Счетчик для разрешения конфликтов приоритетов
 
     async def start(self):
         """Запускает воркер очереди"""
@@ -94,7 +95,9 @@ class TaskQueue:
             "added_at": datetime.now().isoformat()
         }
 
-        await self.queue.put((priority, task))
+        # Используем кортеж (priority, counter, task) для разрешения конфликтов
+        self.counter += 1
+        await self.queue.put((priority, self.counter, task))
         logger.info(
             f"Задача добавлена в очередь: {task_type}, "
             f"приоритет={priority}, очередь={self.queue.qsize()}"
@@ -107,7 +110,7 @@ class TaskQueue:
         while self.running:
             try:
                 # Получаем задачу с наивысшим приоритетом
-                priority, task = await asyncio.wait_for(
+                priority, counter, task = await asyncio.wait_for(
                     self.queue.get(),
                     timeout=1.0
                 )
@@ -119,8 +122,13 @@ class TaskQueue:
 
                 await self._process_task(task)
 
-                # Рандомная задержка 3-5 секунд между задачами
-                delay = random.uniform(3, 5)
+                # Рандомная задержка между задачами
+                # Для обновления цен (приоритет 2) - больше задержка
+                if priority == 2:
+                    delay = random.uniform(10, 15)
+                else:
+                    delay = random.uniform(3, 5)
+
                 logger.info(f"Задержка перед следующей задачей: {delay:.2f} сек")
                 await asyncio.sleep(delay)
 
@@ -278,8 +286,8 @@ class TaskQueue:
             tasks = []
             while not self.queue.empty():
                 try:
-                    priority, task = self.queue.get_nowait()
-                    tasks.append({"priority": priority, "task": task})
+                    priority, counter, task = self.queue.get_nowait()
+                    tasks.append({"priority": priority, "counter": counter, "task": task})
                 except asyncio.QueueEmpty:
                     break
 
@@ -301,7 +309,13 @@ class TaskQueue:
                 tasks = json.load(f)
 
             for item in tasks:
-                await self.queue.put((item["priority"], item["task"]))
+                priority = item["priority"]
+                counter = item.get("counter", 0)  # Для совместимости со старым форматом
+                task = item["task"]
+                await self.queue.put((priority, counter, task))
+                # Обновляем счетчик
+                if counter >= self.counter:
+                    self.counter = counter + 1
 
             logger.info(f"Очередь загружена с диска: {len(tasks)} задач")
 

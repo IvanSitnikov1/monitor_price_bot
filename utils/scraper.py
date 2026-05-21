@@ -50,13 +50,29 @@ async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
     async with async_playwright() as p:
         context = await p.chromium.launch_persistent_context(
             user_data_dir=str(user_data_dir),
-            headless=False,
-            args=['--disable-blink-features=AutomationControlled'],
+            headless=True,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+            ],
         )
         await context.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            Object.defineProperty(navigator, 'languages', { get: () => ['ru-RU', 'ru', 'en-US', 'en'] });
             window.chrome = { runtime: {} };
+
+            // Переопределяем permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
         """)
         page = context.pages[0] if context.pages else await context.new_page()
 
