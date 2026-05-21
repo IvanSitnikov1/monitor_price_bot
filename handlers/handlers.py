@@ -111,9 +111,12 @@ async def process_link(message: types.Message, state: FSMContext):
 
 # Обработчик кнопки "Список позиций"
 @main_router.message(F.text == "Список позиций")
-async def list_positions(message: types.Message):
+async def list_positions(message: types.Message, state: FSMContext):
     user = message.from_user
     logger.info(f"Пользователь {user.id} запросил список товаров")
+
+    # Очищаем состояние FSM, если пользователь был в процессе добавления товара
+    await state.clear()
 
     products = await get_all_products(user.id)
     logger.info(f"Найдено товаров в БД для пользователя {user.id}: {len(products)}")
@@ -130,12 +133,15 @@ async def list_positions(message: types.Message):
 
 # Обработчик кнопки "🔄 Обновить цены" (только для админа)
 @main_router.message(F.text == "🔄 Обновить цены")
-async def manual_update_prices(message: types.Message):
+async def manual_update_prices(message: types.Message, state: FSMContext):
     user = message.from_user
 
     if user.id != ADMIN_ID:
         logger.warning(f"Попытка доступа к админ-функции от пользователя {user.id}")
         return
+
+    # Очищаем состояние FSM
+    await state.clear()
 
     logger.info(f"Админ {user.id} запустил ручное обновление цен")
 
