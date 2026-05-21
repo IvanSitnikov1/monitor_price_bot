@@ -7,3 +7,5 @@ uv.lock
 # Virtual environments
 .venv
 .python-version
+
+user_data

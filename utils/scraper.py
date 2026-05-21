@@ -13,127 +13,107 @@ logger = logging.getLogger(__name__)
 
 async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
     """
-    Асинхронно парсит страницу товара на Ozon с помощью Playwright.
-
-    Args:
-        url: URL страницы товара.
-
-    Returns:
-        Кортеж (название, цена) или (None, None) в случае ошибки.
+    Парсит данные товара Ozon, используя реальный профиль Chrome для учета региона и аккаунта.
     """
-    logger.info(f"Запуск браузера для парсинга: {url}")
-    cookies_file = Path("ozon_cookies.json")
+    logger.info(f"Начало процесса для ссылки: {url}")
+
+    # Путь к папке, куда вы скопировали профиль (~/.config/google-chrome/)
+    # ВАЖНО: Playwright нужен путь к родителю папки "Default"
+    user_data_dir = Path("./user_data").absolute()
+    if not user_data_dir.exists():
+        logger.info(f"Папка {user_data_dir} не найдена. Создаю новую...")
+        user_data_dir.mkdir(parents=True, exist_ok=True)
+
+    lock_file = user_data_dir / "Default" / "SingletonLock"
+    if lock_file.exists():
+        lock_file.unlink()
 
     async with async_playwright() as p:
-        logger.debug("Запуск Chromium в headless режиме")
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                '--disable-blink-features=AutomationControlled',
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-            ]
+        context = await p.chromium.launch_persistent_context(
+            user_data_dir=str(user_data_dir),
+            headless=False,
+            args=['--disable-blink-features=AutomationControlled'],
         )
+        await context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+            window.chrome = { runtime: {} };
+        """)
+        page = context.pages[0] if context.pages else await context.new_page()
 
-        context = await browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            locale='ru-RU',
-        )
+        # Сначала переходим на домен, потом добавляем cookies
+        await page.goto("https://www.ozon.ru", timeout=30000)
 
-        # Загружаем куки, если файл существует
-        if cookies_file.exists():
-            try:
-                logger.debug(f"Загрузка cookies из {cookies_file}")
-                cookies = _load_cookies(cookies_file)
-                await context.add_cookies(cookies)
-                logger.debug(f"Загружено {len(cookies)} cookies")
-            except Exception as e:
-                logger.error(f"Ошибка загрузки кук: {e}")
+        cookies = _load_cookies(Path("ozon_cookies.json"))  # твоя функция уже есть!
+        await context.add_cookies(cookies)
 
-        page = await context.new_page()
+        # Теперь переходим на нужный URL
+        await page.goto(url, timeout=45000)
 
+        # --- Логика ожидания (защита от капчи/заглушек) ---
+        max_wait = 30
+        waited = 0
+        while waited < max_wait:
+            content = await page.content()
+            if "captcha" in content.lower() or "challenge" in content.lower() or "проверка системы" in content.lower():
+                logger.warning(f"Обнаружена проверка (капча), ждем... ({waited}/{max_wait}с)")
+                await asyncio.sleep(2)
+                waited += 2
+            else:
+                break
+
+        if waited >= max_wait:
+            logger.error("Не удалось пройти проверку системы за отведенное время")
+            await context.close()
+            return None, None
+
+        # Ожидание стабилизации страницы
         try:
-            logger.info(f"Переход на страницу: {url}")
-            await page.goto(url, timeout=30000)
+            await page.wait_for_load_state('networkidle', timeout=10000)
+        except PlaywrightTimeoutError:
+            logger.warning("Networkidle timeout - продолжаем парсинг")
 
-            # Проверяем наличие капчи (ждём до 30 секунд)
-            max_wait = 30
-            waited = 0
+        await asyncio.sleep(2)  # Доп. пауза для рендеринга цен
 
-            while waited < max_wait:
-                try:
-                    content = await page.content()
+        # --- Извлечение названия ---
+        product_name = None
+        try:
+            title_element = page.locator('h1').first
+            product_name = await title_element.text_content(timeout=5000)
+            if product_name:
+                product_name = product_name.strip()
+            logger.info(f"Название: {product_name}")
+        except Exception as e:
+            logger.error(f"Не удалось найти название: {e}")
 
-                    if "Доступ ограничен" in content or "captcha" in content.lower() or "challenge" in content.lower():
-                        logger.warning(f"Обнаружена капча, ожидание... ({waited}/{max_wait}с)")
-                        await asyncio.sleep(2)
-                        waited += 2
-                    else:
-                        break
-                except Exception as e:
-                    # Страница еще навигируется, пропускаем эту итерацию
-                    logger.debug(f"Страница навигируется, ожидание... ({waited}/{max_wait}с)")
-                    await asyncio.sleep(2)
-                    waited += 2
+        # --- Извлечение цены ---
+        price = None
+        try:
+            # Озон часто меняет классы, используем ваш селектор + запасной вариант
+            price_locator = page.locator('span.tsHeadline600Large').first
 
-            if waited >= max_wait:
-                logger.error("Превышено время ожидания прохождения капчи")
-                await browser.close()
-                return None, None
+            # Если ваш старый селектор не сработал, пробуем универсальный по значку рубля
+            if await price_locator.count() == 0:
+                price_locator = page.locator('[data-attribute="price"]').first
 
-            # Ждем загрузки контента
-            logger.debug("Ожидание загрузки страницы...")
-            try:
-                await page.wait_for_load_state('networkidle', timeout=15000)
-                logger.debug("Страница загружена (networkidle)")
-            except PlaywrightTimeoutError:
-                logger.warning("Timeout при ожидании networkidle, продолжаем")
+            price_text = await price_locator.text_content(timeout=5000)
+            logger.debug(f"Сырой текст цены: {price_text}")
 
-            await asyncio.sleep(2)
-
-            # Извлекаем название товара
-            logger.debug("Поиск названия товара...")
-            product_name = None
-            try:
-                title_element = page.locator('h1').first
-                product_name = await title_element.text_content(timeout=5000)
-                product_name = product_name.strip() if product_name else None
-                logger.info(f"Название найдено: {product_name}")
-            except Exception as e:
-                logger.error(f"Не удалось найти название товара: {e}")
-
-            # Извлекаем цену
-            logger.debug("Поиск цены товара...")
-            price = None
-            try:
-                price_element = page.locator('span.tsHeadline600Large').first
-                price_text = await price_element.text_content(timeout=5000)
-                logger.debug(f"Найден текст цены: {price_text}")
-
-                # Извлекаем число (учитываем все виды пробелов)
-                match = re.search(r'([\d\s\xa0   ]+)\s*₽', price_text)
+            # Очистка цены (учитываем пробелы, символы рубля и спецсимволы)
+            if price_text:
+                # Ищем цифры, разделенные пробелами
+                match = re.search(r'([\d\s\xa0]+)', price_text)
                 if match:
-                    price_str = match.group(1)
-                    # Удаляем все виды пробелов
-                    price_str = re.sub(r'[\s\xa0   ]', '', price_str)
-
+                    price_str = re.sub(r'[\s\xa0]', '', match.group(1))
                     if price_str.isdigit():
                         price = f"{price_str} ₽"
-                        logger.info(f"Цена найдена: {price}")
-
-            except Exception as e:
-                logger.error(f"Не удалось найти цену: {e}")
-
-            logger.debug("Закрытие браузера")
-            await browser.close()
-            logger.info(f"Парсинг завершен успешно: {product_name}, {price}")
-            return product_name, price
+                        logger.info(f"Итоговая цена: {price}")
 
         except Exception as e:
-            logger.error(f"Общая ошибка при парсинге: {e}", exc_info=True)
-            await browser.close()
-            return None, None
+            logger.error(f"Не удалось найти цену: {e}")
+
+        await context.close()
+        return product_name, price
 
 
 def _load_cookies(filepath: Path) -> list[dict]:
