@@ -52,6 +52,52 @@ async def add_position(message: types.Message, state: FSMContext):
     await state.set_state(AddPosition.waiting_for_link)
 
 
+# Обработчик кнопки "Список позиций"
+@main_router.message(F.text == "Список позиций")
+async def list_positions(message: types.Message, state: FSMContext):
+    user = message.from_user
+    logger.info(f"Пользователь {user.id} запросил список товаров")
+
+    # Очищаем состояние FSM, если пользователь был в процессе добавления товара
+    await state.clear()
+
+    products = await get_all_products(user.id)
+    logger.info(f"Найдено товаров в БД для пользователя {user.id}: {len(products)}")
+
+    if not products:
+        await message.answer("Список позиций пуст. Добавьте товары для отслеживания.")
+        return
+
+    await message.answer(
+        "📋 Список отслеживаемых товаров:",
+        reply_markup=get_products_keyboard(products, marketplace_filter=None)
+    )
+
+
+# Обработчик кнопки "🔄 Обновить цены" (только для админа)
+@main_router.message(F.text == "🔄 Обновить цены")
+async def manual_update_prices(message: types.Message, state: FSMContext):
+    user = message.from_user
+
+    if user.id != ADMIN_ID:
+        logger.warning(f"Попытка доступа к админ-функции от пользователя {user.id}")
+        return
+
+    # Очищаем состояние FSM
+    await state.clear()
+
+    logger.info(f"Админ {user.id} запустил ручное обновление цен")
+
+    task_queue = message.bot.task_queue
+    await update_all_prices(task_queue)
+
+    await message.answer(
+        "✅ Все товары добавлены в очередь обновления!\n"
+        "Обновление будет выполнено в фоновом режиме."
+    )
+    logger.info(f"Ручное обновление цен: товары добавлены в очередь")
+
+
 @main_router.message(AddPosition.waiting_for_link, F.text)
 async def process_link(message: types.Message, state: FSMContext):
     user = message.from_user
@@ -107,28 +153,6 @@ async def process_link(message: types.Message, state: FSMContext):
 
     logger.info(f"Задача добавления товара добавлена в очередь для пользователя {user.id}")
     await state.clear()
-
-
-# Обработчик кнопки "Список позиций"
-@main_router.message(F.text == "Список позиций")
-async def list_positions(message: types.Message, state: FSMContext):
-    user = message.from_user
-    logger.info(f"Пользователь {user.id} запросил список товаров")
-
-    # Очищаем состояние FSM, если пользователь был в процессе добавления товара
-    await state.clear()
-
-    products = await get_all_products(user.id)
-    logger.info(f"Найдено товаров в БД для пользователя {user.id}: {len(products)}")
-
-    if not products:
-        await message.answer("Список позиций пуст. Добавьте товары для отслеживания.")
-        return
-
-    await message.answer(
-        "📋 Список отслеживаемых товаров:",
-        reply_markup=get_products_keyboard(products, marketplace_filter=None)
-    )
 
 
 # Обработчик кнопки "🔄 Обновить цены" (только для админа)
