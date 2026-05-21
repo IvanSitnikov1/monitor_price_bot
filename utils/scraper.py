@@ -17,12 +17,31 @@ async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
     """
     logger.info(f"Начало процесса для ссылки: {url}")
 
-    # Путь к папке, куда вы скопировали профиль (~/.config/google-chrome/)
-    # ВАЖНО: Playwright нужен путь к родителю папки "Default"
+    # Путь к папке профиля Chrome/Chromium
+    # Приоритет: 1) скопированный профиль, 2) системный профиль, 3) новый профиль
     user_data_dir = Path("./user_data").absolute()
-    if not user_data_dir.exists():
-        logger.info(f"Папка {user_data_dir} не найдена. Создаю новую...")
-        user_data_dir.mkdir(parents=True, exist_ok=True)
+
+    # Если локальный профиль не существует, пробуем использовать системный
+    if not (user_data_dir / "Default").exists():
+        # Пробуем найти профиль в разных местах
+        possible_profiles = [
+            Path.home() / ".config" / "chromium",  # Chromium на Linux
+            Path.home() / ".config" / "google-chrome",  # Chrome на Linux
+            Path.home() / "snap" / "chromium" / "common" / "chromium",  # Chromium snap
+        ]
+
+        system_profile = None
+        for profile_path in possible_profiles:
+            if profile_path.exists() and (profile_path / "Default").exists():
+                system_profile = profile_path
+                logger.info(f"Найден системный профиль: {system_profile}")
+                break
+
+        if system_profile:
+            user_data_dir = system_profile
+        else:
+            logger.warning(f"Системный профиль не найден. Создаю новый в {user_data_dir}")
+            user_data_dir.mkdir(parents=True, exist_ok=True)
 
     lock_file = user_data_dir / "Default" / "SingletonLock"
     if lock_file.exists():
