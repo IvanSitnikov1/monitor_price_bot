@@ -109,6 +109,13 @@ class TaskQueue:
 
         while self.running:
             try:
+                # Проверяем режим техработ
+                from utils.maintenance import MaintenanceMode
+                if MaintenanceMode.is_active():
+                    logger.warning("Режим техработ активен, воркер приостановлен")
+                    await asyncio.sleep(10)
+                    continue
+
                 # Получаем задачу с наивысшим приоритетом
                 priority, counter, task = await asyncio.wait_for(
                     self.queue.get(),
@@ -151,7 +158,7 @@ class TaskQueue:
 
             for attempt in range(1, 4):
                 logger.info(f"Попытка парсинга {attempt}/3: {url}")
-                product_name, price = await scrape_ozon_product(url)
+                product_name, price = await scrape_ozon_product(url, bot=self.bot)
 
                 if product_name and price:
                     logger.info(f"Товар успешно спарсен: {product_name}, цена: {price}")

@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     BOT_TOKEN: str
     PROXY_URL: str | None = None
     DEBUG_CAPTCHA: bool = False
+    ADMIN_USER_ID: int = 1189033386
 
     class Config:
         env_file = ".env"

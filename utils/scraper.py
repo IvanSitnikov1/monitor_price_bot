@@ -48,9 +48,16 @@ async def _check_captcha(page) -> bool:
     )
 
 
-async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
+async def scrape_ozon_product(url: str, bot=None) -> tuple[str | None, str | None]:
     """
     Парсит данные товара Ozon, используя реальный профиль Chrome для учета региона и аккаунта.
+
+    Args:
+        url: URL товара
+        bot: Экземпляр бота (для отправки уведомлений при капче)
+
+    Returns:
+        Кортеж (название, цена) или (None, None) при ошибке
     """
     logger.info(f"Начало процесса для ссылки: {url}")
 
@@ -193,9 +200,25 @@ async def scrape_ozon_product(url: str) -> tuple[str | None, str | None]:
                     await context.close()
                     return None, None
             else:
-                # Продакшн-режим: сразу выходим
-                logger.warning("Обнаружена капча. Закрываем браузер и выходим.")
+                # Продакшн-режим: включаем maintenance mode и выходим
+                logger.warning("Обнаружена капча. Включаем режим техработ.")
                 await context.close()
+
+                # Импортируем здесь, чтобы избежать циклических импортов
+                from utils.maintenance import MaintenanceMode
+
+                # Включаем режим техработ
+                MaintenanceMode.enable()
+
+                # Отправляем уведомление всем пользователям
+                if bot:
+                    await MaintenanceMode.notify_all_users(
+                        bot,
+                        "🚧 Ведутся технические работы.\n\n"
+                        "Обновление цен временно приостановлено. "
+                        "Мы уведомим вас, когда всё заработает."
+                    )
+
                 return None, None
 
         # Ожидание стабилизации страницы

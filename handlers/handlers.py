@@ -6,9 +6,11 @@ from aiogram import F, types, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
+from config import config
 from keyboards.reply import main_kb, admin_kb
 from keyboards.inline import get_products_keyboard, get_product_detail_keyboard
 from utils.states import AddPosition
+from utils.maintenance import MaintenanceMode
 from core.database import (
     add_product,
     get_all_products,
@@ -25,8 +27,6 @@ from core.models import Marketplace
 logger = logging.getLogger(__name__)
 main_router = Router()
 
-ADMIN_ID = 1189033386
-
 
 # Обработчик команды /start
 @main_router.message(Command("start"))
@@ -35,7 +35,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     logger.info(f"Команда /start от пользователя {user.id} (@{user.username})")
     await state.clear()
 
-    keyboard = admin_kb if user.id == ADMIN_ID else main_kb
+    keyboard = admin_kb if user.id == config.ADMIN_USER_ID else main_kb
 
     await message.answer(
         "Привет! Я бот для мониторинга цен. Выбери действие:",
@@ -79,7 +79,7 @@ async def list_positions(message: types.Message, state: FSMContext):
 async def manual_update_prices(message: types.Message, state: FSMContext):
     user = message.from_user
 
-    if user.id != ADMIN_ID:
+    if user.id != config.ADMIN_USER_ID:
         logger.warning(f"Попытка доступа к админ-функции от пользователя {user.id}")
         return
 
@@ -96,6 +96,89 @@ async def manual_update_prices(message: types.Message, state: FSMContext):
         "Обновление будет выполнено в фоновом режиме."
     )
     logger.info(f"Ручное обновление цен: товары добавлены в очередь")
+
+
+# Обработчик команды /resolve_captcha (только для админа)
+@main_router.message(Command("resolve_captcha"))
+async def resolve_captcha(message: types.Message, state: FSMContext):
+    user = message.from_user
+
+    if user.id != config.ADMIN_USER_ID:
+        logger.warning(f"Попытка доступа к админ-команде от пользователя {user.id}")
+        return
+
+    await state.clear()
+
+    # Проверяем, активен ли режим техработ
+    if not MaintenanceMode.is_active():
+        await message.answer("ℹ️ Режим техработ не активен. Всё работает нормально.")
+        return
+
+    logger.info(f"Админ {user.id} запустил команду /resolve_captcha")
+
+    await message.answer(
+        "🔧 Запускаю процесс решения капчи...\n\n"
+        "Откроется браузер в режиме с интерфейсом. "
+        "Решите капчу вручную, после чего бот автоматически продолжит работу.\n\n"
+        "⏳ Ожидайте..."
+    )
+
+    # Временно включаем DEBUG_CAPTCHA
+    original_debug = config.DEBUG_CAPTCHA
+    config.DEBUG_CAPTCHA = True
+
+    try:
+        # Импортируем scraper
+        from utils.scraper import scrape_ozon_product
+
+        # Берём любой товар из БД для теста
+        from core.database import get_all_products_for_update
+        products = await get_all_products_for_update()
+
+        if not products:
+            await message.answer("❌ Нет товаров в БД для проверки капчи.")
+            config.DEBUG_CAPTCHA = original_debug
+            return
+
+        test_url = products[0]['url']
+        logger.info(f"Тестовый парсинг для решения капчи: {test_url}")
+
+        # Пробуем спарсить товар (с ожиданием капчи)
+        product_name, price = await scrape_ozon_product(test_url, bot=message.bot)
+
+        if product_name and price:
+            # Капча решена успешно
+            logger.info("Капча решена успешно!")
+
+            # Выключаем режим техработ
+            MaintenanceMode.disable()
+
+            # Уведомляем всех пользователей
+            await message.answer("✅ Капча решена! Отправляю уведомления пользователям...")
+
+            success, fail = await MaintenanceMode.notify_all_users(
+                message.bot,
+                "✅ Технические работы завершены!\n\n"
+                "Бот снова работает в штатном режиме. "
+                "Обновление цен возобновлено."
+            )
+
+            await message.answer(
+                f"✅ Режим техработ отключён.\n\n"
+                f"Уведомления отправлены: {success} успешно, {fail} ошибок."
+            )
+        else:
+            await message.answer(
+                "❌ Не удалось решить капчу или произошла ошибка.\n"
+                "Попробуйте ещё раз."
+            )
+
+    except Exception as e:
+        logger.error(f"Ошибка при решении капчи: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка: {str(e)}")
+    finally:
+        # Возвращаем исходное значение DEBUG_CAPTCHA
+        config.DEBUG_CAPTCHA = original_debug
 
 
 @main_router.message(AddPosition.waiting_for_link, F.text)
@@ -153,30 +236,6 @@ async def process_link(message: types.Message, state: FSMContext):
 
     logger.info(f"Задача добавления товара добавлена в очередь для пользователя {user.id}")
     await state.clear()
-
-
-# Обработчик кнопки "🔄 Обновить цены" (только для админа)
-@main_router.message(F.text == "🔄 Обновить цены")
-async def manual_update_prices(message: types.Message, state: FSMContext):
-    user = message.from_user
-
-    if user.id != ADMIN_ID:
-        logger.warning(f"Попытка доступа к админ-функции от пользователя {user.id}")
-        return
-
-    # Очищаем состояние FSM
-    await state.clear()
-
-    logger.info(f"Админ {user.id} запустил ручное обновление цен")
-
-    task_queue = message.bot.task_queue
-    await update_all_prices(task_queue)
-
-    await message.answer(
-        "✅ Все товары добавлены в очередь обновления!\n"
-        "Обновление будет выполнено в фоновом режиме."
-    )
-    logger.info(f"Ручное обновление цен: товары добавлены в очередь")
 
 
 # Эхо-обработчик (теперь он должен быть последним)

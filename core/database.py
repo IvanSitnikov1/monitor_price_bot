@@ -370,3 +370,19 @@ async def get_min_price(product_id: int) -> int | None:
 
         result = await cursor.fetchone()
         return result[0] if result else None
+
+
+async def get_all_user_ids() -> list[int]:
+    """
+    Получает список всех уникальных ID пользователей бота.
+
+    Returns:
+        Список ID пользователей Telegram
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT DISTINCT user_id FROM user_products ORDER BY user_id"
+        )
+
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
