@@ -44,8 +44,9 @@ async def start_bot():
 
     # Обновление цен с 0 до 2 часов (запуск в 00:00)
     scheduler.add_job(
-        lambda: asyncio.create_task(update_all_prices(task_queue)),
+        update_all_prices,
         trigger=CronTrigger(hour=0, minute=0),
+        args=[task_queue],
         id="update_prices_night",
         name="Обновление цен (ночь)",
         replace_existing=True
@@ -53,8 +54,9 @@ async def start_bot():
 
     # Обновление цен с 12 до 14 часов (запуск в 12:00)
     scheduler.add_job(
-        lambda: asyncio.create_task(update_all_prices(task_queue)),
+        update_all_prices,
         trigger=CronTrigger(hour=12, minute=0),
+        args=[task_queue],
         id="update_prices_day",
         name="Обновление цен (день)",
         replace_existing=True
