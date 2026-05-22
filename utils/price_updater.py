@@ -33,7 +33,8 @@ async def update_all_prices(task_queue):
             url=product['url'],
             priority=2,  # Низкий приоритет
             product_id=product['id'],
-            product_name=product['name']
+            product_name=product['name'],
+            user_id=product['user_id']  # Передаём user_id для использования профиля
         )
 
     logger.info(f"Все товары добавлены в очередь обновления")

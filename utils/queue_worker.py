@@ -11,7 +11,7 @@ from core.database import (
     add_product,
     update_product_price,
     get_min_price,
-    get_product_subscribers
+    get_product_owner
 )
 
 
@@ -158,7 +158,10 @@ class TaskQueue:
 
             for attempt in range(1, 4):
                 logger.info(f"Попытка парсинга {attempt}/3: {url}")
-                product_name, price = await scrape_ozon_product(url, bot=self.bot)
+
+                # Передаём user_id в scraper
+                user_id = task.get("user_id")
+                product_name, price = await scrape_ozon_product(url, user_id=user_id, bot=self.bot)
 
                 if product_name and price:
                     logger.info(f"Товар успешно спарсен: {product_name}, цена: {price}")
@@ -265,12 +268,11 @@ class TaskQueue:
                 f"Было: {min_price_before} ₽, стало: {price_int} ₽"
             )
 
-            # Получаем всех подписчиков товара
-            subscribers = await get_product_subscribers(product_id)
-            logger.info(f"Отправка уведомлений {len(subscribers)} подписчикам")
+            # Получаем владельца товара
+            owner_id = await get_product_owner(product_id)
+            if owner_id:
+                logger.info(f"Отправка уведомления владельцу {owner_id}")
 
-            # Отправляем уведомления всем подписчикам
-            for user_id in subscribers:
                 try:
                     notification_text = (
                         f"🔔 Цена снизилась!\n\n"
@@ -280,11 +282,11 @@ class TaskQueue:
                         f"💵 Экономия: {min_price_before - price_int} ₽"
                     )
 
-                    await self.bot.send_message(user_id, notification_text)
-                    logger.info(f"Уведомление отправлено пользователю {user_id}")
+                    await self.bot.send_message(owner_id, notification_text)
+                    logger.info(f"Уведомление отправлено пользователю {owner_id}")
                 except Exception as e:
                     logger.error(
-                        f"Не удалось отправить уведомление пользователю {user_id}: {e}"
+                        f"Не удалось отправить уведомление пользователю {owner_id}: {e}"
                     )
 
     async def _save_queue(self):

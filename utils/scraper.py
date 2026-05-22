@@ -14,6 +14,40 @@ from config import config
 logger = logging.getLogger(__name__)
 
 
+def _get_system_profile() -> Path:
+    """
+    Определяет путь к системному профилю Chrome/Chromium.
+
+    Returns:
+        Path к профилю
+    """
+    user_data_dir = Path("./user_data").absolute()
+
+    # Если локальный профиль не существует, пробуем использовать системный
+    if not (user_data_dir / "Default").exists():
+        # Пробуем найти профиль в разных местах
+        possible_profiles = [
+            Path.home() / ".config" / "chromium",  # Chromium на Linux
+            Path.home() / ".config" / "google-chrome",  # Chrome на Linux
+            Path.home() / "snap" / "chromium" / "common" / "chromium",  # Chromium snap
+        ]
+
+        system_profile = None
+        for profile_path in possible_profiles:
+            if profile_path.exists() and (profile_path / "Default").exists():
+                system_profile = profile_path
+                logger.info(f"Найден системный профиль: {system_profile}")
+                break
+
+        if system_profile:
+            user_data_dir = system_profile
+        else:
+            logger.warning(f"Системный профиль не найден. Создаю новый в {user_data_dir}")
+            user_data_dir.mkdir(parents=True, exist_ok=True)
+
+    return user_data_dir
+
+
 async def _human_like_behavior(page):
     """Имитирует человеческое поведение: скроллинг, движения мыши, паузы"""
     try:
@@ -48,48 +82,47 @@ async def _check_captcha(page) -> bool:
     )
 
 
-async def scrape_ozon_product(url: str, bot=None) -> tuple[str | None, str | None]:
+async def scrape_ozon_product(url: str, user_id: int | None = None, bot=None) -> tuple[str | None, str | None]:
     """
-    Парсит данные товара Ozon, используя реальный профиль Chrome для учета региона и аккаунта.
+    Парсит данные товара Ozon, используя профиль пользователя или системный профиль.
 
     Args:
         url: URL товара
+        user_id: ID пользователя Telegram (опционально)
         bot: Экземпляр бота (для отправки уведомлений при капче)
 
     Returns:
         Кортеж (название, цена) или (None, None) при ошибке
     """
-    logger.info(f"Начало процесса для ссылки: {url}")
+    logger.info(f"Начало процесса для ссылки: {url}, user_id: {user_id}")
 
-    # Путь к папке профиля Chrome/Chromium
-    # Приоритет: 1) скопированный профиль, 2) системный профиль, 3) новый профиль
-    user_data_dir = Path("./user_data").absolute()
-
-    # Если локальный профиль не существует, пробуем использовать системный
-    if not (user_data_dir / "Default").exists():
-        # Пробуем найти профиль в разных местах
-        possible_profiles = [
-            Path.home() / ".config" / "chromium",  # Chromium на Linux
-            Path.home() / ".config" / "google-chrome",  # Chrome на Linux
-            Path.home() / "snap" / "chromium" / "common" / "chromium",  # Chromium snap
-        ]
-
-        system_profile = None
-        for profile_path in possible_profiles:
-            if profile_path.exists() and (profile_path / "Default").exists():
-                system_profile = profile_path
-                logger.info(f"Найден системный профиль: {system_profile}")
-                break
-
-        if system_profile:
-            user_data_dir = system_profile
+    # Определяем путь к профилю
+    if user_id:
+        # Проверяем наличие профиля пользователя
+        user_profile = Path(f"user_data/{user_id}").absolute()
+        if user_profile.exists() and (user_profile / "Default").exists():
+            user_data_dir = user_profile
+            logger.info(f"Используется профиль пользователя: {user_data_dir}")
         else:
-            logger.warning(f"Системный профиль не найден. Создаю новый в {user_data_dir}")
-            user_data_dir.mkdir(parents=True, exist_ok=True)
+            # Профиль пользователя не найден, используем системный
+            user_data_dir = _get_system_profile()
+    else:
+        # user_id не указан, используем системный профиль
+        user_data_dir = _get_system_profile()
 
-    lock_file = user_data_dir / "Default" / "SingletonLock"
-    if lock_file.exists():
-        lock_file.unlink()
+    # Удаляем все возможные lock-файлы
+    lock_files = [
+        user_data_dir / "Default" / "SingletonLock",
+        user_data_dir / "SingletonLock",
+        user_data_dir / "lockfile"
+    ]
+    for lock_file in lock_files:
+        if lock_file.exists():
+            try:
+                lock_file.unlink()
+                logger.info(f"Удалён lock-файл: {lock_file}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить lock-файл {lock_file}: {e}")
 
     async with async_playwright() as p:
         context = await p.chromium.launch_persistent_context(

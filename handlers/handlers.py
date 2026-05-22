@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from config import config
 from keyboards.reply import main_kb, admin_kb
 from keyboards.inline import get_products_keyboard, get_product_detail_keyboard
-from utils.states import AddPosition
+from utils.states import AddPosition, LoginState
 from utils.maintenance import MaintenanceMode
 from core.database import (
     add_product,
@@ -17,7 +17,10 @@ from core.database import (
     get_product_details,
     delete_product,
     get_price_history,
-    check_user_has_product
+    check_user_has_product,
+    save_auth_request,
+    get_auth_request,
+    update_auth_request_status
 )
 from utils.price_updater import update_all_prices
 from utils.link_parser import parse_product_link
@@ -179,6 +182,155 @@ async def resolve_captcha(message: types.Message, state: FSMContext):
     finally:
         # Возвращаем исходное значение DEBUG_CAPTCHA
         config.DEBUG_CAPTCHA = original_debug
+
+
+# Обработчик команды /login
+@main_router.message(Command("login"))
+async def cmd_login(message: types.Message, state: FSMContext):
+    user = message.from_user
+    logger.info(f"Команда /login от пользователя {user.id} (@{user.username})")
+    await state.clear()
+
+    await message.answer("📱 Отправьте ваш номер телефона в формате +79991234567")
+    await state.set_state(LoginState.waiting_for_phone)
+
+
+# Обработчик приёма номера телефона
+@main_router.message(LoginState.waiting_for_phone, F.text)
+async def process_phone(message: types.Message, state: FSMContext):
+    user = message.from_user
+    phone = message.text.strip()
+
+    logger.info(f"Пользователь {user.id} отправил номер телефона: {phone}")
+
+    # Валидация номера
+    if not re.match(r'^\+7\d{10}$', phone):
+        await message.answer(
+            "❌ Неверный формат номера телефона.\n"
+            "Используйте формат: +79991234567"
+        )
+        return
+
+    # Сохраняем запрос в БД
+    await save_auth_request(
+        user_id=user.id,
+        phone=phone,
+        username=user.username
+    )
+
+    # Уведомляем админа
+    await notify_admin_about_auth_request(
+        bot=message.bot,
+        user_id=user.id,
+        username=user.username,
+        phone=phone
+    )
+
+    await message.answer(
+        "✅ Запрос на авторизацию отправлен администратору.\n"
+        "Ожидайте QR-код для авторизации."
+    )
+
+    logger.info(f"Запрос на авторизацию от пользователя {user.id} сохранён")
+    await state.clear()
+
+
+async def notify_admin_about_auth_request(bot, user_id: int, username: str | None, phone: str):
+    """Отправляет админу уведомление о запросе авторизации с кнопками"""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    text = (
+        f"🔐 <b>Запрос на авторизацию</b>\n\n"
+        f"Пользователь: @{username or 'без username'}\n"
+        f"ID: <code>{user_id}</code>\n"
+        f"Телефон: <code>{phone}</code>"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Авторизовать", callback_data=f"auth_approve:{user_id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"auth_reject:{user_id}")
+        ]
+    ])
+
+    await bot.send_message(config.ADMIN_USER_ID, text, reply_markup=keyboard, parse_mode="HTML")
+
+
+# Обработчик одобрения авторизации (админ)
+@main_router.callback_query(F.data.startswith("auth_approve:"))
+async def approve_authorization(callback: types.CallbackQuery):
+    user = callback.from_user
+
+    if user.id != config.ADMIN_USER_ID:
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    user_id = int(callback.data.split(":")[1])
+    logger.info(f"Админ {user.id} одобрил авторизацию для пользователя {user_id}")
+
+    # Получаем данные запроса
+    request = await get_auth_request(user_id)
+
+    if not request:
+        await callback.answer("❌ Запрос не найден", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        f"⏳ Запускаю процесс авторизации для пользователя {user_id}...\n"
+        f"Телефон: {request['phone']}"
+    )
+
+    try:
+        # Запускаем процесс авторизации
+        from scripts.authorize_user import authorize_user
+        await authorize_user(user_id, request['phone'], callback.bot)
+
+        await callback.message.edit_text(
+            f"✅ Пользователь {user_id} успешно авторизован"
+        )
+
+    except TimeoutError as e:
+        logger.error(f"Таймаут авторизации для пользователя {user_id}: {e}")
+        await callback.message.edit_text(
+            f"❌ Таймаут: пользователь {user_id} не завершил авторизацию вовремя"
+        )
+        await callback.bot.send_message(
+            user_id,
+            "❌ Время авторизации истекло. Попробуйте позже или обратитесь к администратору."
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка авторизации для пользователя {user_id}: {e}", exc_info=True)
+        await callback.message.edit_text(
+            f"❌ Ошибка авторизации: {str(e)}"
+        )
+        await callback.bot.send_message(
+            user_id,
+            "❌ Не удалось завершить авторизацию. Попробуйте позже или обратитесь к администратору."
+        )
+
+
+# Обработчик отклонения авторизации (админ)
+@main_router.callback_query(F.data.startswith("auth_reject:"))
+async def reject_authorization(callback: types.CallbackQuery):
+    user = callback.from_user
+
+    if user.id != config.ADMIN_USER_ID:
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    user_id = int(callback.data.split(":")[1])
+    logger.info(f"Админ {user.id} отклонил авторизацию для пользователя {user_id}")
+
+    await callback.message.edit_text(f"❌ Запрос от пользователя {user_id} отклонён")
+
+    await callback.bot.send_message(
+        user_id,
+        "❌ Ваш запрос на авторизацию отклонён администратором."
+    )
+
+    await update_auth_request_status(user_id, "rejected")
+    await callback.answer()
 
 
 @main_router.message(AddPosition.waiting_for_link, F.text)

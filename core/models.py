@@ -1,4 +1,5 @@
 from enum import Enum
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 
@@ -33,3 +34,12 @@ class PriceHistory(BaseModel):
         description="Дата проверки цены",
         examples=["2024-01-15T10:30:00"]
     )
+
+
+class AuthRequest(BaseModel):
+    """Запрос на авторизацию от пользователя"""
+    user_id: int = Field(..., description="ID пользователя Telegram")
+    phone: str = Field(..., description="Номер телефона", examples=["+79991234567"])
+    username: str | None = Field(None, description="Username пользователя")
+    request_date: datetime = Field(default_factory=datetime.now, description="Дата запроса")
+    status: str = Field("pending", description="Статус: pending | approved | rejected")

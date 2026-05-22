@@ -11,10 +11,14 @@ DB_PATH = Path("bot_database.db")
 async def setup_database():
     """Создает таблицы в базе данных, если они не существуют"""
     async with aiosqlite.connect(DB_PATH) as db:
+        # Включаем поддержку внешних ключей
+        await db.execute("PRAGMA foreign_keys = ON")
+
         await db.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT NOT NULL UNIQUE,
+                user_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
                 name TEXT NOT NULL,
                 marketplace TEXT NOT NULL DEFAULT 'ozon',
                 date_added TEXT NOT NULL
@@ -32,12 +36,12 @@ async def setup_database():
         """)
 
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS user_products (
-                user_id INTEGER NOT NULL,
-                product_id INTEGER NOT NULL,
-                date_subscribed TEXT NOT NULL,
-                PRIMARY KEY (user_id, product_id),
-                FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
+            CREATE TABLE IF NOT EXISTS auth_requests (
+                user_id INTEGER PRIMARY KEY,
+                phone TEXT NOT NULL,
+                username TEXT,
+                request_date TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending'
             )
         """)
 
@@ -46,21 +50,20 @@ async def setup_database():
 
 async def check_user_has_product(user_id: int, url: str) -> bool:
     """
-    Проверяет, подписан ли пользователь на товар с данным URL.
+    Проверяет, есть ли у пользователя товар с данным URL.
 
     Args:
         user_id: ID пользователя Telegram
         url: URL товара
 
     Returns:
-        True если пользователь уже подписан на этот товар, False иначе
+        True если пользователь уже имеет этот товар, False иначе
     """
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("""
             SELECT 1
-            FROM user_products up
-            INNER JOIN products p ON up.product_id = p.id
-            WHERE up.user_id = ? AND p.url = ?
+            FROM products
+            WHERE user_id = ? AND url = ?
         """, (user_id, url))
 
         return await cursor.fetchone() is not None
@@ -74,7 +77,7 @@ async def add_product(
     marketplace: Marketplace
 ) -> int | None:
     """
-    Добавляет новый товар или подписывает пользователя на существующий.
+    Добавляет новый товар для пользователя.
 
     Args:
         url: URL товара
@@ -84,41 +87,28 @@ async def add_product(
         marketplace: Маркетплейс товара
 
     Returns:
-        ID товара или None, если пользователь уже подписан на этот товар
+        ID товара или None, если пользователь уже имеет этот товар
     """
     async with aiosqlite.connect(DB_PATH) as db:
+        # Включаем поддержку внешних ключей
+        await db.execute("PRAGMA foreign_keys = ON")
+
         date_now = datetime.now().isoformat()
 
-        # Проверяем, существует ли товар
+        # Проверяем, есть ли уже такой товар у пользователя
         cursor = await db.execute(
-            "SELECT id FROM products WHERE url = ?",
-            (url,)
+            "SELECT id FROM products WHERE user_id = ? AND url = ?",
+            (user_id, url)
         )
         existing_product = await cursor.fetchone()
 
         if existing_product:
-            product_id = existing_product[0]
-
-            # Проверяем, подписан ли уже пользователь
-            cursor = await db.execute(
-                "SELECT 1 FROM user_products WHERE user_id = ? AND product_id = ?",
-                (user_id, product_id)
-            )
-            if await cursor.fetchone():
-                return None
-
-            # Подписываем пользователя на существующий товар
-            await db.execute(
-                "INSERT INTO user_products (user_id, product_id, date_subscribed) VALUES (?, ?, ?)",
-                (user_id, product_id, date_now)
-            )
-            await db.commit()
-            return product_id
+            return None
 
         # Создаем новый товар
         cursor = await db.execute(
-            "INSERT INTO products (url, name, marketplace, date_added) VALUES (?, ?, ?, ?)",
-            (url, name, marketplace.value, date_now)
+            "INSERT INTO products (user_id, url, name, marketplace, date_added) VALUES (?, ?, ?, ?, ?)",
+            (user_id, url, name, marketplace.value, date_now)
         )
         product_id = cursor.lastrowid
 
@@ -126,12 +116,6 @@ async def add_product(
         await db.execute(
             "INSERT INTO price_history (product_id, price, date_checked) VALUES (?, ?, ?)",
             (product_id, price, date_now)
-        )
-
-        # Подписываем пользователя
-        await db.execute(
-            "INSERT INTO user_products (user_id, product_id, date_subscribed) VALUES (?, ?, ?)",
-            (user_id, product_id, date_now)
         )
 
         await db.commit()
@@ -160,9 +144,8 @@ async def get_all_products(user_id: int, marketplace: str | None = None) -> list
                 p.marketplace,
                 ph.price as current_price
             FROM products p
-            INNER JOIN user_products up ON p.id = up.product_id
             LEFT JOIN price_history ph ON p.id = ph.product_id
-            WHERE up.user_id = ?
+            WHERE p.user_id = ?
             AND ph.date_checked = (
                 SELECT MAX(date_checked)
                 FROM price_history
@@ -176,7 +159,7 @@ async def get_all_products(user_id: int, marketplace: str | None = None) -> list
             query += " AND p.marketplace = ?"
             params.append(marketplace)
 
-        query += " ORDER BY up.date_subscribed DESC"
+        query += " ORDER BY p.date_added DESC"
 
         cursor = await db.execute(query, params)
 
@@ -199,20 +182,12 @@ async def get_product_details(product_id: int, user_id: int) -> dict | None:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
 
-        # Проверяем, что товар принадлежит пользователю
-        cursor = await db.execute(
-            "SELECT 1 FROM user_products WHERE user_id = ? AND product_id = ?",
-            (user_id, product_id)
-        )
-        if not await cursor.fetchone():
-            return None
-
         cursor = await db.execute("""
             SELECT
                 p.id,
                 p.url,
                 p.name,
-                up.date_subscribed as date_added,
+                p.date_added,
                 (SELECT price FROM price_history
                  WHERE product_id = p.id
                  ORDER BY date_checked DESC LIMIT 1) as current_price,
@@ -225,8 +200,7 @@ async def get_product_details(product_id: int, user_id: int) -> dict | None:
                  WHERE product_id = p.id AND price = (SELECT MAX(price) FROM price_history WHERE product_id = p.id)
                  LIMIT 1) as max_price_date
             FROM products p
-            INNER JOIN user_products up ON p.id = up.product_id
-            WHERE p.id = ? AND up.user_id = ?
+            WHERE p.id = ? AND p.user_id = ?
         """, (product_id, user_id))
 
         row = await cursor.fetchone()
@@ -238,13 +212,13 @@ async def get_all_products_for_update() -> list[dict]:
     Получает список всех товаров для фонового обновления цен.
 
     Returns:
-        Список словарей с полями: id, url, name, marketplace
+        Список словарей с полями: id, user_id, url, name, marketplace
     """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
 
         cursor = await db.execute("""
-            SELECT id, url, name, marketplace
+            SELECT id, user_id, url, name, marketplace
             FROM products
             ORDER BY id
         """)
@@ -286,6 +260,9 @@ async def update_product_price(product_id: int, price: int):
         price: Новая цена
     """
     async with aiosqlite.connect(DB_PATH) as db:
+        # Включаем поддержку внешних ключей
+        await db.execute("PRAGMA foreign_keys = ON")
+
         date_now = datetime.now().isoformat()
 
         await db.execute(
@@ -298,58 +275,50 @@ async def update_product_price(product_id: int, price: int):
 
 async def delete_product(product_id: int, user_id: int) -> bool:
     """
-    Отписывает пользователя от товара. Если это последний пользователь, удаляет товар.
+    Удаляет товар пользователя.
 
     Args:
         product_id: ID товара
         user_id: ID пользователя Telegram
 
     Returns:
-        True если пользователь был отписан, False если товар не найден или не принадлежит пользователю
+        True если товар был удалён, False если товар не найден или не принадлежит пользователю
     """
     async with aiosqlite.connect(DB_PATH) as db:
-        # Удаляем подписку пользователя
+        # Включаем поддержку внешних ключей
+        await db.execute("PRAGMA foreign_keys = ON")
+
+        # Удаляем товар (CASCADE удалит связанную историю цен)
         cursor = await db.execute(
-            "DELETE FROM user_products WHERE user_id = ? AND product_id = ?",
-            (user_id, product_id)
+            "DELETE FROM products WHERE id = ? AND user_id = ?",
+            (product_id, user_id)
         )
 
         if cursor.rowcount == 0:
             return False
 
-        # Проверяем, остались ли другие подписчики
-        cursor = await db.execute(
-            "SELECT COUNT(*) FROM user_products WHERE product_id = ?",
-            (product_id,)
-        )
-        count = (await cursor.fetchone())[0]
-
-        # Если подписчиков нет, удаляем товар
-        if count == 0:
-            await db.execute("DELETE FROM products WHERE id = ?", (product_id,))
-
         await db.commit()
         return True
 
 
-async def get_product_subscribers(product_id: int) -> list[int]:
+async def get_product_owner(product_id: int) -> int | None:
     """
-    Получает список ID пользователей, подписанных на товар.
+    Получает ID владельца товара.
 
     Args:
         product_id: ID товара
 
     Returns:
-        Список ID пользователей Telegram
+        ID пользователя Telegram или None если товар не найден
     """
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "SELECT user_id FROM user_products WHERE product_id = ?",
+            "SELECT user_id FROM products WHERE id = ?",
             (product_id,)
         )
 
-        rows = await cursor.fetchall()
-        return [row[0] for row in rows]
+        result = await cursor.fetchone()
+        return result[0] if result else None
 
 
 async def get_min_price(product_id: int) -> int | None:
@@ -381,8 +350,91 @@ async def get_all_user_ids() -> list[int]:
     """
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "SELECT DISTINCT user_id FROM user_products ORDER BY user_id"
+            "SELECT DISTINCT user_id FROM products ORDER BY user_id"
         )
 
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
+
+
+async def save_auth_request(user_id: int, phone: str, username: str | None):
+    """
+    Сохраняет запрос на авторизацию от пользователя.
+
+    Args:
+        user_id: ID пользователя Telegram
+        phone: Номер телефона
+        username: Username пользователя (опционально)
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Включаем поддержку внешних ключей
+        await db.execute("PRAGMA foreign_keys = ON")
+
+        date_now = datetime.now().isoformat()
+
+        await db.execute("""
+            INSERT OR REPLACE INTO auth_requests (user_id, phone, username, request_date, status)
+            VALUES (?, ?, ?, ?, 'pending')
+        """, (user_id, phone, username, date_now))
+
+        await db.commit()
+
+
+async def get_auth_request(user_id: int) -> dict | None:
+    """
+    Получает запрос на авторизацию по ID пользователя.
+
+    Args:
+        user_id: ID пользователя Telegram
+
+    Returns:
+        Словарь с полями: user_id, phone, username, request_date, status или None
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute(
+            "SELECT * FROM auth_requests WHERE user_id = ?",
+            (user_id,)
+        )
+
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def update_auth_request_status(user_id: int, status: str):
+    """
+    Обновляет статус запроса на авторизацию.
+
+    Args:
+        user_id: ID пользователя Telegram
+        status: Новый статус (pending | approved | rejected)
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Включаем поддержку внешних ключей
+        await db.execute("PRAGMA foreign_keys = ON")
+
+        await db.execute(
+            "UPDATE auth_requests SET status = ? WHERE user_id = ?",
+            (status, user_id)
+        )
+
+        await db.commit()
+
+
+async def get_pending_auth_requests() -> list[dict]:
+    """
+    Получает список всех ожидающих запросов на авторизацию.
+
+    Returns:
+        Список словарей с полями: user_id, phone, username, request_date, status
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute(
+            "SELECT * FROM auth_requests WHERE status = 'pending' ORDER BY request_date"
+        )
+
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
