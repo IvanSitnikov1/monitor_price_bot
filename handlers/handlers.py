@@ -101,6 +101,17 @@ async def manual_update_prices(message: types.Message, state: FSMContext):
     logger.info(f"Ручное обновление цен: товары добавлены в очередь")
 
 
+# Обработчик кнопки "🔐 Авторизация"
+@main_router.message(F.text == "🔐 Авторизация")
+async def authorization_button(message: types.Message, state: FSMContext):
+    user = message.from_user
+    logger.info(f"Пользователь {user.id} нажал кнопку Авторизация")
+    await state.clear()
+
+    await message.answer("📱 Отправьте ваш номер телефона в формате +79991234567")
+    await state.set_state(LoginState.waiting_for_phone)
+
+
 # Обработчик команды /resolve_captcha (только для админа)
 @main_router.message(Command("resolve_captcha"))
 async def resolve_captcha(message: types.Message, state: FSMContext):

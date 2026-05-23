@@ -6,6 +6,9 @@ main_kb = ReplyKeyboardMarkup(
         [
             KeyboardButton(text="Добавить позицию"),
             KeyboardButton(text="Список позиций"),
+        ],
+        [
+            KeyboardButton(text="🔐 Авторизация"),
         ]
     ],
     resize_keyboard=True,
@@ -20,6 +23,7 @@ admin_kb = ReplyKeyboardMarkup(
         ],
         [
             KeyboardButton(text="🔄 Обновить цены"),
+            KeyboardButton(text="🔐 Авторизация"),
         ]
     ],
     resize_keyboard=True,
