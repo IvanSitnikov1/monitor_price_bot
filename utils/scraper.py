@@ -73,15 +73,6 @@ async def _human_like_behavior(page):
         )
 
 
-async def _check_captcha(page) -> bool:
-    """Проверяет наличие капчи на странице"""
-    content = await page.content()
-    return any(
-        keyword in content.lower()
-        for keyword in ["captcha", "challenge", "проверка системы", "security check"]
-    )
-
-
 async def _human_delay(min_s=0.5, max_s=2.0):
     # Гамма-распределение ближе к реальному поведению человека
     delay = random.gammavariate(2, 0.5)
@@ -89,14 +80,13 @@ async def _human_delay(min_s=0.5, max_s=2.0):
     await asyncio.sleep(delay)
 
 
-async def scrape_ozon_product(url: str, user_id: int | None = None, bot=None) -> tuple[str | None, str | None]:
+async def scrape_ozon_product(url: str, user_id: int | None = None) -> tuple[str | None, str | None]:
     """
     Парсит данные товара Ozon, используя профиль пользователя или системный профиль.
 
     Args:
         url: URL товара
         user_id: ID пользователя Telegram (опционально)
-        bot: Экземпляр бота (для отправки уведомлений при капче)
 
     Returns:
         Кортеж (название, цена) или (None, None) при ошибке
@@ -254,47 +244,6 @@ async def scrape_ozon_product(url: str, user_id: int | None = None, bot=None) ->
 
         # Имитируем человеческое поведение
         await _human_like_behavior(page)
-
-        # --- Логика обработки капчи ---
-        if await _check_captcha(page):
-            if config.DEBUG_CAPTCHA:
-                # Дебаг-режим: ждём решения капчи
-                logger.warning("Обнаружена капча. DEBUG_CAPTCHA=True, ожидаем решения...")
-                max_wait = 60
-                waited = 0
-                while waited < max_wait:
-                    if not await _check_captcha(page):
-                        logger.info("Капча решена!")
-                        break
-                    logger.warning(f"Ожидание решения капчи... ({waited}/{max_wait}с)")
-                    await asyncio.sleep(2)
-                    waited += 2
-
-                if waited >= max_wait:
-                    logger.error("Не удалось пройти капчу за отведенное время")
-                    await context.close()
-                    return None, None
-            else:
-                # Продакшн-режим: включаем maintenance mode и выходим
-                logger.warning("Обнаружена капча. Включаем режим техработ.")
-                await context.close()
-
-                # Импортируем здесь, чтобы избежать циклических импортов
-                from utils.maintenance import MaintenanceMode
-
-                # Включаем режим техработ
-                MaintenanceMode.enable()
-
-                # Отправляем уведомление всем пользователям
-                if bot:
-                    await MaintenanceMode.notify_all_users(
-                        bot,
-                        "🚧 Ведутся технические работы.\n\n"
-                        "Обновление цен временно приостановлено. "
-                        "Мы уведомим вас, когда всё заработает."
-                    )
-
-                return None, None
 
         # Ожидание стабилизации страницы
         try:

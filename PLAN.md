@@ -219,3 +219,15 @@
     *   [x] Обновить `queue_worker.py` - использовать get_product_owner
     *   [x] Обновить `price_updater.py` - передавать user_id в очередь
     *   [x] Создать миграцию `migrate_remove_user_products.py`
+
+## Этап 11: Оптимизация обработки капчи (24.05.2026)
+
+29. **Рефакторинг логики капчи:**
+    *   [x] Убрать функцию `_check_captcha()` из `utils/scraper.py`
+    *   [x] Убрать всю логику проверки капчи из `scrape_ozon_product()`
+    *   [x] Убрать параметр `bot` из функции `scrape_ozon_product()`
+    *   [x] Убрать импорт `MaintenanceMode` из `scraper.py`
+    *   [x] Перенести логику активации техработ в `queue_worker.py`
+    *   [x] Создать метод `_activate_maintenance_mode()` в классе `TaskQueue`
+    *   [x] Активировать режим техработ только после 3 неудачных попыток парсинга
+    *   [x] Обновить вызов `scrape_ozon_product()` в `handlers.py` (убрать параметр bot)

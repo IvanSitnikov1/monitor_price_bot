@@ -208,7 +208,7 @@ async def resolve_captcha(message: types.Message, state: FSMContext):
         logger.info(f"Тестовый парсинг для решения капчи: {test_url}")
 
         # Пробуем спарсить товар (с ожиданием капчи)
-        product_name, price = await scrape_ozon_product(test_url, bot=message.bot)
+        product_name, price = await scrape_ozon_product(test_url)
 
         if product_name and price:
             # Капча решена успешно

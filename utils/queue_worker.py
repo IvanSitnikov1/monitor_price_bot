@@ -161,7 +161,7 @@ class TaskQueue:
 
                 # Передаём user_id в scraper
                 user_id = task.get("user_id")
-                product_name, price = await scrape_ozon_product(url, user_id=user_id, bot=self.bot)
+                product_name, price = await scrape_ozon_product(url, user_id=user_id)
 
                 if product_name and price:
                     logger.info(f"Товар успешно спарсен: {product_name}, цена: {price}")
@@ -170,6 +170,11 @@ class TaskQueue:
                     logger.warning(f"Попытка {attempt} не удалась")
                     if attempt < 3:
                         await asyncio.sleep(5)
+
+            # Если все 3 попытки провалились — включаем режим техработ
+            if not product_name or not price:
+                logger.error(f"Все 3 попытки парсинга провалились для {url}")
+                await self._activate_maintenance_mode()
 
             if task_type == "add_product":
                 await self._handle_add_product(task, product_name, price)
@@ -288,6 +293,27 @@ class TaskQueue:
                     logger.error(
                         f"Не удалось отправить уведомление пользователю {owner_id}: {e}"
                     )
+
+    async def _activate_maintenance_mode(self):
+        """Активирует режим техработ и уведомляет всех пользователей"""
+        from utils.maintenance import MaintenanceMode
+
+        logger.warning("Активация режима техработ после 3 неудачных попыток парсинга")
+
+        # Включаем режим техработ
+        MaintenanceMode.enable()
+
+        # Отправляем уведомление всем пользователям
+        try:
+            await MaintenanceMode.notify_all_users(
+                self.bot,
+                "🚧 Ведутся технические работы.\n\n"
+                "Обновление цен временно приостановлено. "
+                "Мы уведомим вас, когда всё заработает."
+            )
+            logger.info("Уведомления о техработах отправлены всем пользователям")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке уведомлений о техработах: {e}", exc_info=True)
 
     async def _save_queue(self):
         """Сохраняет текущую очередь на диск"""
