@@ -26,13 +26,13 @@ async def schedule_price_update_with_delay(task_queue, time_window: str):
         time_window: Название временного окна для логирования ("ночь" или "день")
     """
     # Генерируем случайную задержку от 0 до 120 минут (2 часа)
-    delay_minutes = random.randint(0, 120)
-    delay_seconds = delay_minutes * 60
+    delay_seconds = random.randint(0, 120 * 60)
 
-    logger.info(
-        f"Запланировано обновление цен ({time_window}) "
-        f"через {delay_minutes} минут ({delay_minutes // 60}ч {delay_minutes % 60}м)"
-    )
+    hours = delay_seconds // 3600
+    minutes = (delay_seconds % 3600) // 60
+    seconds = delay_seconds % 60
+
+    logger.info(f"Следующее обновление цен ({time_window}) через {hours}ч {minutes}м {seconds}с")
 
     # Ждем случайное время
     await asyncio.sleep(delay_seconds)
