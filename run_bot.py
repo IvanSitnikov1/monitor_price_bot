@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -14,6 +15,30 @@ from utils.queue_worker import TaskQueue
 
 
 logger = logging.getLogger(__name__)
+
+
+async def schedule_price_update_with_delay(task_queue, time_window: str):
+    """
+    Запускает обновление цен со случайной задержкой в пределах 2-часового окна.
+
+    Args:
+        task_queue: Экземпляр TaskQueue для добавления задач
+        time_window: Название временного окна для логирования ("ночь" или "день")
+    """
+    # Генерируем случайную задержку от 0 до 120 минут (2 часа)
+    delay_minutes = random.randint(0, 120)
+    delay_seconds = delay_minutes * 60
+
+    logger.info(
+        f"Запланировано обновление цен ({time_window}) "
+        f"через {delay_minutes} минут ({delay_minutes // 60}ч {delay_minutes % 60}м)"
+    )
+
+    # Ждем случайное время
+    await asyncio.sleep(delay_seconds)
+
+    # Запускаем обновление цен
+    await update_all_prices(task_queue)
 
 
 async def start_bot():
@@ -42,21 +67,21 @@ async def start_bot():
     # Настраиваем планировщик задач
     scheduler = AsyncIOScheduler()
 
-    # Обновление цен с 0 до 2 часов (запуск в 00:00)
+    # Обновление цен с 0 до 2 часов (запуск в 00:00 + случайная задержка)
     scheduler.add_job(
-        update_all_prices,
+        schedule_price_update_with_delay,
         trigger=CronTrigger(hour=0, minute=0),
-        args=[task_queue],
+        args=[task_queue, "ночь"],
         id="update_prices_night",
         name="Обновление цен (ночь)",
         replace_existing=True
     )
 
-    # Обновление цен с 12 до 14 часов (запуск в 12:00)
+    # Обновление цен с 12 до 14 часов (запуск в 12:00 + случайная задержка)
     scheduler.add_job(
-        update_all_prices,
+        schedule_price_update_with_delay,
         trigger=CronTrigger(hour=12, minute=0),
-        args=[task_queue],
+        args=[task_queue, "день"],
         id="update_prices_day",
         name="Обновление цен (день)",
         replace_existing=True
@@ -64,7 +89,7 @@ async def start_bot():
 
     scheduler.start()
     logger.info("Планировщик задач запущен")
-    logger.info("Обновление цен: 00:00 и 12:00 ежедневно")
+    logger.info("Обновление цен: 00:00-02:00 и 12:00-14:00 ежедневно (случайное время)")
 
     # Удаляем вебхуки и пропускаем старые сообщения
     logger.info("Удаление вебхуков...")
