@@ -50,27 +50,27 @@ def _get_system_profile() -> Path:
 
 async def _human_like_behavior(page):
     """Имитирует человеческое поведение: скроллинг, движения мыши, паузы"""
-    try:
-        # Случайный скроллинг вниз
-        scroll_distance = random.randint(300, 800)
-        await page.evaluate(f"window.scrollBy(0, {scroll_distance})")
-        await asyncio.sleep(random.uniform(0.5, 1.5))
+    async def move_mouse_bezier(page, x1, y1, x2, y2, steps=20):
+        # Контрольные точки кривой
+        cx = random.randint(min(x1, x2), max(x1, x2))
+        cy = random.randint(min(y1, y2), max(y1, y2))
 
-        # Скроллинг вверх
-        scroll_back = random.randint(100, 300)
-        await page.evaluate(f"window.scrollBy(0, -{scroll_back})")
-        await asyncio.sleep(random.uniform(0.3, 0.8))
-
-        # Случайное движение мыши
-        viewport_size = page.viewport_size
-        if viewport_size:
-            x = random.randint(100, viewport_size['width'] - 100)
-            y = random.randint(100, viewport_size['height'] - 100)
+        for i in range(steps + 1):
+            t = i / steps
+            # Квадратичная кривая Безье
+            x = int((1 - t) ** 2 * x1 + 2 * (1 - t) * t * cx + t ** 2 * x2)
+            y = int((1 - t) ** 2 * y1 + 2 * (1 - t) * t * cy + t ** 2 * y2)
             await page.mouse.move(x, y)
-            await asyncio.sleep(random.uniform(0.2, 0.5))
+            await asyncio.sleep(random.uniform(0.01, 0.03))
 
-    except Exception as e:
-        logger.debug(f"Ошибка при имитации поведения: {e}")
+    viewport = page.viewport_size
+    if viewport:
+        # Начальная позиция мыши — центр экрана
+        await move_mouse_bezier(
+            page, 960, 540,
+            random.randint(200, viewport['width'] - 200),
+            random.randint(200, viewport['height'] - 200)
+        )
 
 
 async def _check_captcha(page) -> bool:
@@ -80,6 +80,13 @@ async def _check_captcha(page) -> bool:
         keyword in content.lower()
         for keyword in ["captcha", "challenge", "проверка системы", "security check"]
     )
+
+
+async def _human_delay(min_s=0.5, max_s=2.0):
+    # Гамма-распределение ближе к реальному поведению человека
+    delay = random.gammavariate(2, 0.5)
+    delay = max(min_s, min(max_s, delay))
+    await asyncio.sleep(delay)
 
 
 async def scrape_ozon_product(url: str, user_id: int | None = None, bot=None) -> tuple[str | None, str | None]:
@@ -124,18 +131,27 @@ async def scrape_ozon_product(url: str, user_id: int | None = None, bot=None) ->
             except Exception as e:
                 logger.warning(f"Не удалось удалить lock-файл {lock_file}: {e}")
 
+    USER_AGENTS = [
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    ]
+
     async with async_playwright() as p:
         context = await p.chromium.launch_persistent_context(
             user_data_dir=str(user_data_dir),
             headless=False,
+            user_agent=random.choice(USER_AGENTS),
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--disable-dev-shm-usage',
                 '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-gpu',
+                '--window-size=1920,1080',
+                '--start-maximized',
             ],
+            locale="ru-RU",
+            timezone_id="Europe/Moscow",
         )
 
         # Расширенные stealth-скрипты
@@ -190,6 +206,32 @@ async def scrape_ozon_product(url: str, user_id: int | None = None, bot=None) ->
                     level: 1
                 });
             }
+            
+            // Canvas fingerprint рандомизация
+            const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+            HTMLCanvasElement.prototype.toDataURL = function(type) {
+                const dataURL = originalToDataURL.apply(this, arguments);
+                return dataURL; // + небольшой шум через getImageData
+            };
+            
+            // WebGL fingerprint
+            const getParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) return 'Intel Inc.';
+                if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+                return getParameter.apply(this, arguments);
+            };
+            
+            // AudioContext fingerprint
+            const originalGetChannelData = AudioBuffer.prototype.getChannelData;
+            AudioBuffer.prototype.getChannelData = function() {
+                const array = originalGetChannelData.apply(this, arguments);
+                // добавить микро-шум
+                for (let i = 0; i < array.length; i += 100) {
+                    array[i] += (Math.random() - 0.5) * 0.0000001;
+                }
+                return array;
+            };
         """)
 
         # Закрываем все лишние вкладки, оставляем только одну
@@ -208,7 +250,7 @@ async def scrape_ozon_product(url: str, user_id: int | None = None, bot=None) ->
         await page.goto(url, timeout=45000)
 
         # Случайная пауза после загрузки
-        await asyncio.sleep(random.uniform(1.5, 3))
+        await _human_delay()
 
         # Имитируем человеческое поведение
         await _human_like_behavior(page)

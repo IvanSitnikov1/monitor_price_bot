@@ -7,3 +7,7 @@ class AddPosition(StatesGroup):
 
 class LoginState(StatesGroup):
     waiting_for_phone = State()
+
+
+class BroadcastState(StatesGroup):
+    waiting_for_message = State()

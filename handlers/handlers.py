@@ -5,6 +5,7 @@ from datetime import datetime
 from aiogram import F, types, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 
 from config import config
 from keyboards.reply import main_kb, admin_kb
@@ -25,10 +26,16 @@ from core.database import (
 from utils.price_updater import update_all_prices
 from utils.link_parser import parse_product_link
 from core.models import Marketplace
+from core.database import broadcast_to_users
 
 
 logger = logging.getLogger(__name__)
 main_router = Router()
+
+
+# Состояние для рассылки
+class BroadcastState(StatesGroup):
+    waiting_for_message = State()
 
 
 # Обработчик команды /start
@@ -99,6 +106,49 @@ async def manual_update_prices(message: types.Message, state: FSMContext):
         "Обновление будет выполнено в фоновом режиме."
     )
     logger.info(f"Ручное обновление цен: товары добавлены в очередь")
+
+
+# Обработчик кнопки "📢 Рассылка" (только для админа)
+@main_router.message(F.text == "📢 Рассылка")
+async def broadcast_command(message: types.Message, state: FSMContext):
+    user = message.from_user
+
+    if user.id != config.ADMIN_USER_ID:
+        logger.warning(f"Попытка доступа к админ-функции от пользователя {user.id}")
+        return
+
+    # Очищаем состояние FSM
+    await state.clear()
+
+    logger.info(f"Админ {user.id} запустил рассылку")
+
+    await message.answer("📧 Введите сообщение для рассылки всем пользователям:")
+    await state.set_state(BroadcastState.waiting_for_message)
+
+
+# Обработчик ввода сообщения для рассылки
+@main_router.message(BroadcastState.waiting_for_message)
+async def process_broadcast_message(message: types.Message, state: FSMContext):
+    user = message.from_user
+
+    if user.id != config.ADMIN_USER_ID:
+        logger.warning(f"Попытка доступа к админ-функции от пользователя {user.id}")
+        await state.clear()
+        return
+
+    broadcast_message = message.text
+    logger.info(f"Админ {user.id} ввел сообщение для рассылки: '{broadcast_message[:50]}...'")
+
+    # Отправляем сообщение всем пользователям
+    success_count = await broadcast_to_users(message.bot, broadcast_message)
+
+    await state.clear()
+
+    await message.answer(
+        f"✅ Рассылка завершена!\n"
+        f"Отправлено сообщений: {success_count}"
+    )
+    logger.info(f"Рассылка завершена. Отправлено {success_count} сообщений")
 
 
 # Обработчик кнопки "🔐 Авторизация"

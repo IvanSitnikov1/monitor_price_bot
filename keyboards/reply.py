@@ -22,6 +22,7 @@ admin_kb = ReplyKeyboardMarkup(
             KeyboardButton(text="Список позиций"),
         ],
         [
+            KeyboardButton(text="📢 Рассылка"),
             KeyboardButton(text="🔄 Обновить цены"),
             KeyboardButton(text="🔐 Авторизация"),
         ]

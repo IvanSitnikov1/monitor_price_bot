@@ -438,3 +438,43 @@ async def get_pending_auth_requests() -> list[dict]:
 
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+async def get_all_user_ids() -> list[int]:
+    """
+    Получает список всех уникальных ID пользователей бота.
+
+    Returns:
+        Список ID пользователей Telegram
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT DISTINCT user_id FROM products ORDER BY user_id"
+        )
+
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
+
+
+async def broadcast_to_users(bot, message: str):
+    """
+    Отправляет сообщение всем пользователям из базы данных.
+
+    Args:
+        bot: Экземпляр бота
+        message: Текст сообщения для рассылки
+
+    Returns:
+        Количество успешно отправленных сообщений
+    """
+    user_ids = await get_all_user_ids()
+    success_count = 0
+
+    for user_id in user_ids:
+        try:
+            await bot.send_message(chat_id=user_id, text=message)
+            success_count += 1
+        except Exception as e:
+            print(f"Ошибка при отправке пользователю {user_id}: {e}")
+
+    return success_count
