@@ -11,3 +11,4 @@ uv.lock
 user_data
 bot_database.db
 logs
+debug_data

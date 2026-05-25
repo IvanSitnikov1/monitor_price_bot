@@ -1,14 +1,11 @@
 import asyncio
-import json
 import logging
 import random
 import re
-import time
 from pathlib import Path
+from uuid import uuid4
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
-
-from config import config
 
 
 logger = logging.getLogger(__name__)
@@ -21,31 +18,10 @@ def _get_system_profile() -> Path:
     Returns:
         Path к профилю
     """
-    user_data_dir = Path("./user_data").absolute()
+    system_profile = Path.home() / ".config" / "chromium"
+    logger.info(f"Найден системный профиль: {system_profile}")
 
-    # Если локальный профиль не существует, пробуем использовать системный
-    if not (user_data_dir / "Default").exists():
-        # Пробуем найти профиль в разных местах
-        possible_profiles = [
-            Path.home() / ".config" / "chromium",  # Chromium на Linux
-            Path.home() / ".config" / "google-chrome",  # Chrome на Linux
-            Path.home() / "snap" / "chromium" / "common" / "chromium",  # Chromium snap
-        ]
-
-        system_profile = None
-        for profile_path in possible_profiles:
-            if profile_path.exists() and (profile_path / "Default").exists():
-                system_profile = profile_path
-                logger.info(f"Найден системный профиль: {system_profile}")
-                break
-
-        if system_profile:
-            user_data_dir = system_profile
-        else:
-            logger.warning(f"Системный профиль не найден. Создаю новый в {user_data_dir}")
-            user_data_dir.mkdir(parents=True, exist_ok=True)
-
-    return user_data_dir
+    return system_profile
 
 
 async def _human_like_behavior(page):
@@ -80,7 +56,7 @@ async def _human_delay(min_s=0.5, max_s=2.0):
     await asyncio.sleep(delay)
 
 
-async def scrape_ozon_product(url: str, user_id: int | None = None) -> tuple[str | None, str | None]:
+async def scrape_ozon_product(url: str, user_id: int) -> tuple[str | None, str | None]:
     """
     Парсит данные товара Ozon, используя профиль пользователя или системный профиль.
 
@@ -93,19 +69,15 @@ async def scrape_ozon_product(url: str, user_id: int | None = None) -> tuple[str
     """
     logger.info(f"Начало процесса для ссылки: {url}, user_id: {user_id}")
 
-    # Определяем путь к профилю
-    if user_id:
-        # Проверяем наличие профиля пользователя
-        user_profile = Path(f"user_data/{user_id}").absolute()
-        if user_profile.exists() and (user_profile / "Default").exists():
-            user_data_dir = user_profile
-            logger.info(f"Используется профиль пользователя: {user_data_dir}")
-        else:
-            # Профиль пользователя не найден, используем системный
-            user_data_dir = _get_system_profile()
+    # Проверяем наличие профиля пользователя
+    user_profile = Path(f"user_data/{user_id}").absolute()
+    if user_profile.exists() and (user_profile / "Default").exists():
+        user_data_dir = user_profile
+        logger.info(f"Используется профиль пользователя: {user_data_dir}")
     else:
-        # user_id не указан, используем системный профиль
+        # Профиль пользователя не найден, используем системный
         user_data_dir = _get_system_profile()
+        logger.info(f"Используется системный профиль: {user_data_dir}")
 
     # Удаляем все возможные lock-файлы
     lock_files = [
@@ -121,17 +93,11 @@ async def scrape_ozon_product(url: str, user_id: int | None = None) -> tuple[str
             except Exception as e:
                 logger.warning(f"Не удалось удалить lock-файл {lock_file}: {e}")
 
-    USER_AGENTS = [
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    ]
-
     async with async_playwright() as p:
         context = await p.chromium.launch_persistent_context(
             user_data_dir=str(user_data_dir),
             headless=False,
-            user_agent=random.choice(USER_AGENTS),
+            user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--disable-dev-shm-usage',
@@ -255,43 +221,54 @@ async def scrape_ozon_product(url: str, user_id: int | None = None) -> tuple[str
         await _human_like_behavior(page)
         await asyncio.sleep(random.uniform(1, 2))
 
-        # --- Извлечение названия ---
+        Path(f"debug_data").absolute().mkdir(parents=True, exist_ok=True)
+        await page.screenshot(path=f'debug_data/{uuid4()}.png')
+
+        # --- Извлечение названия и цены ---
         product_name = None
-        try:
-            title_element = page.locator('h1').first
-            product_name = await title_element.text_content(timeout=5000)
-            if product_name:
-                product_name = product_name.strip()
-            logger.info(f"Название: {product_name}")
-        except Exception as e:
-            logger.error(f"Не удалось найти название: {e}")
-
-        # --- Извлечение цены ---
         price = None
-        try:
-            # Озон часто меняет классы, используем ваш селектор + запасной вариант
-            price_locator = page.locator('span.tsHeadline600Large').first
 
-            # Если ваш старый селектор не сработал, пробуем универсальный по значку рубля
-            if await price_locator.count() == 0:
-                price_locator = page.locator('[data-attribute="price"]').first
+        # сначала проверяем, не закончился ли товар
+        out_of_stock = page.locator(
+            'h2:has-text("Этот товар закончился")'
+        ).first
 
-            price_text = await price_locator.text_content(timeout=5000)
-            logger.debug(f"Сырой текст цены: {price_text}")
+        if await out_of_stock.count() > 0:
+            product_name = "end"
+        else:
+            try:
+                title_element = page.locator('h1').first
+                product_name = await title_element.text_content(timeout=5000)
+                if product_name:
+                    product_name = product_name.strip()
+                logger.info(f"Название: {product_name}")
+            except Exception as e:
+                logger.error(f"Не удалось найти название: {e}")
 
-            # Очистка цены (учитываем пробелы, символы рубля и спецсимволы)
-            if price_text:
-                # Ищем цифры, разделенные пробелами
-                match = re.search(r'([\d\s\xa0]+)', price_text)
-                if match:
-                    price_str = re.sub(r'[\s\xa0]', '', match.group(1))
-                    if price_str.isdigit():
-                        price = f"{price_str} ₽"
-                        logger.info(f"Итоговая цена: {price}")
+            # --- Извлечение цены ---
+            try:
+                # Озон часто меняет классы, используем ваш селектор + запасной вариант
+                price_locator = page.locator('span.tsHeadline600Large').first
 
-        except Exception as e:
-            logger.error(f"Не удалось найти цену: {e}")
+                # Если ваш старый селектор не сработал, пробуем универсальный по значку рубля
+                if await price_locator.count() == 0:
+                    price_locator = page.locator('[data-attribute="price"]').first
+
+                price_text = await price_locator.text_content(timeout=5000)
+                logger.debug(f"Сырой текст цены: {price_text}")
+
+                # Очистка цены (учитываем пробелы, символы рубля и спецсимволы)
+                if price_text:
+                    # Ищем цифры, разделенные пробелами
+                    match = re.search(r'([\d\s\xa0]+)', price_text)
+                    if match:
+                        price_str = re.sub(r'[\s\xa0]', '', match.group(1))
+                        if price_str.isdigit():
+                            price = f"{price_str} ₽"
+                            logger.info(f"Итоговая цена: {price}")
+
+            except Exception as e:
+                logger.error(f"Не удалось найти цену: {e}")
 
         await context.close()
         return product_name, price
-

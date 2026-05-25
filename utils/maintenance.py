@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 from core.database import get_all_user_ids
+from config import config
 
 
 logger = logging.getLogger(__name__)
@@ -51,3 +52,8 @@ class MaintenanceMode:
             f"Рассылка завершена: успешно={success_count}, ошибок={fail_count}"
         )
         return success_count, fail_count
+
+    @staticmethod
+    async def notify_admin(bot, message: str):
+        """Отправляет сообщение админу бота"""
+        await bot.send_message(config.ADMIN_USER_ID, message)

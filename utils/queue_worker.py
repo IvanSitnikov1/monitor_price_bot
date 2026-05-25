@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import Literal
@@ -13,6 +14,7 @@ from core.database import (
     get_min_price,
     get_product_owner
 )
+from utils.maintenance import MaintenanceMode
 
 
 logger = logging.getLogger(__name__)
@@ -110,10 +112,9 @@ class TaskQueue:
         while self.running:
             try:
                 # Проверяем режим техработ
-                from utils.maintenance import MaintenanceMode
                 if MaintenanceMode.is_active():
                     logger.warning("Режим техработ активен, воркер приостановлен")
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(30)
                     continue
 
                 # Получаем задачу с наивысшим приоритетом
@@ -130,17 +131,13 @@ class TaskQueue:
                 await self._process_task(task)
 
                 # Рандомная задержка между задачами
-                # Для обновления цен (приоритет 2) - больше задержка
-                if priority == 2:
-                    delay = random.uniform(10, 15)
-                else:
-                    delay = random.uniform(3, 5)
-
+                delay = random.uniform(5, 15)
                 logger.info(f"Задержка перед следующей задачей: {delay:.2f} сек")
                 await asyncio.sleep(delay)
 
             except asyncio.TimeoutError:
                 # Очередь пуста, ждем новых задач
+                await asyncio.sleep(1)
                 continue
             except Exception as e:
                 logger.error(f"Ошибка в воркере очереди: {e}", exc_info=True)
@@ -166,6 +163,13 @@ class TaskQueue:
                 if product_name and price:
                     logger.info(f"Товар успешно спарсен: {product_name}, цена: {price}")
                     break
+                elif product_name=='end':
+                    logger.info('Товар закончился')
+                    await self.bot.send_message(
+                        task["user_id"],
+                        f"❌ Товар закончился, рекомендуется удалить из списка: {url}"
+                    )
+                    return
                 else:
                     logger.warning(f"Попытка {attempt} не удалась")
                     if attempt < 3:
@@ -251,7 +255,6 @@ class TaskQueue:
             return
 
         # Извлекаем число из строки цены
-        import re
         price_match = re.search(r'(\d+)', price)
         if not price_match:
             logger.warning(f"Не удалось распарсить цену: {price}")
@@ -296,24 +299,16 @@ class TaskQueue:
 
     async def _activate_maintenance_mode(self):
         """Активирует режим техработ и уведомляет всех пользователей"""
-        from utils.maintenance import MaintenanceMode
-
         logger.warning("Активация режима техработ после 3 неудачных попыток парсинга")
 
         # Включаем режим техработ
         MaintenanceMode.enable()
 
-        # Отправляем уведомление всем пользователям
-        try:
-            await MaintenanceMode.notify_all_users(
-                self.bot,
-                "🚧 Ведутся технические работы.\n\n"
-                "Обновление цен временно приостановлено. "
-                "Мы уведомим вас, когда всё заработает."
-            )
-            logger.info("Уведомления о техработах отправлены всем пользователям")
-        except Exception as e:
-            logger.error(f"Ошибка при отправке уведомлений о техработах: {e}", exc_info=True)
+        # Отправляем уведомление администратору
+        await MaintenanceMode.notify_admin(
+            self.bot,
+            "🚧 Ошибка при парсинге товара! Активирован MaintenanceMode!",
+        )
 
     async def _save_queue(self):
         """Сохраняет текущую очередь на диск"""
