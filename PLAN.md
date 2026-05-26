@@ -231,3 +231,18 @@
     *   [x] Создать метод `_activate_maintenance_mode()` в классе `TaskQueue`
     *   [x] Активировать режим техработ только после 3 неудачных попыток парсинга
     *   [x] Обновить вызов `scrape_ozon_product()` в `handlers.py` (убрать параметр bot)
+
+## Этап 12: Рефакторинг архитектуры handlers (26.05.2026)
+
+30. **Разделение handlers на модули:**
+    *   [x] Перенести `BroadcastState` из `handlers.py` в `utils/states.py`
+    *   [x] Создать `handlers/common.py` - команда /start и echo-обработчик
+    *   [x] Создать `handlers/products.py` - добавление и список товаров
+    *   [x] Создать `handlers/admin.py` - админ-функции (обновление цен, рассылка, resolve_captcha)
+    *   [x] Создать `handlers/callbacks.py` - все callback-обработчики (product:, filter:, delete:, history:)
+    *   [x] Создать `handlers/auth/ozon.py` - авторизация Ozon (телефон → QR-код)
+    *   [x] Создать `handlers/auth/__init__.py` - экспорт auth_ozon_router
+    *   [x] Обновить `handlers/__init__.py` - экспорт всех роутеров
+    *   [x] Обновить импорты в `run_bot.py`
+    *   [x] Переименовать старый `handlers.py` в `handlers.py.backup`
+    *   [ ] Протестировать работу бота после рефакторинга

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Fingerprint debug</title>
+</head>
+<body>
+<pre id="out"></pre>
+
+<script>
+(async () => {
+  const data = {};
+
+  data.userAgent = navigator.userAgent;
+  data.webdriver = navigator.webdriver;
+  data.platform = navigator.platform;
+  data.languages = navigator.languages;
+  data.language = navigator.language;
+  data.cookieEnabled = navigator.cookieEnabled;
+
+  data.hardwareConcurrency = navigator.hardwareConcurrency;
+  data.deviceMemory = navigator.deviceMemory;
+
+  data.timezone =
+    Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  data.screen = {
+    width: screen.width,
+    height: screen.height,
+    availWidth: screen.availWidth,
+    availHeight: screen.availHeight,
+    pixelRatio: window.devicePixelRatio,
+  };
+
+  data.plugins =
+    [...navigator.plugins].map(p => ({
+      name: p.name,
+      filename: p.filename,
+    }));
+
+  // permissions
+  try {
+    data.notifications =
+      await navigator.permissions.query({
+        name: "notifications"
+      });
+  } catch {}
+
+  // WebGL
+  try {
+    const canvas = document.createElement("canvas");
+    const gl = canvas.getContext("webgl");
+
+    if (gl) {
+      const debugInfo =
+        gl.getExtension("WEBGL_debug_renderer_info");
+
+      data.webgl = {
+        vendor:
+          gl.getParameter(
+            debugInfo.UNMASKED_VENDOR_WEBGL
+          ),
+        renderer:
+          gl.getParameter(
+            debugInfo.UNMASKED_RENDERER_WEBGL
+          ),
+      };
+    }
+  } catch {}
+
+  document.getElementById("out").textContent =
+    JSON.stringify(data, null, 2);
+
+  console.log(data);
+})();
+</script>
+</body>
+</html>

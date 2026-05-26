@@ -228,12 +228,19 @@ async def scrape_ozon_product(url: str, user_id: int) -> tuple[str | None, str |
         product_name = None
         price = None
 
+        # проверяем страницу ошибки сети Ozon
+        no_connection = page.locator(
+            'div:has-text("Похоже, нет соединения")'
+        ).first
+
         # сначала проверяем, не закончился ли товар
         out_of_stock = page.locator(
             'h2:has-text("Этот товар закончился")'
         ).first
 
-        if await out_of_stock.count() > 0:
+        if await no_connection.count() > 0:
+            product_name = "no_connection"
+        elif await out_of_stock.count() > 0:
             product_name = "end"
         else:
             try:

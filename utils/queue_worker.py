@@ -163,7 +163,14 @@ class TaskQueue:
                 if product_name and price:
                     logger.info(f"Товар успешно спарсен: {product_name}, цена: {price}")
                     break
-                elif product_name=='end':
+                elif product_name == 'no_connection':
+                    logger.info("Cтраница 'нет соединения'")
+                    await self.bot.send_message(
+                        task["user_id"],
+                        f"❌ Нет соединения с Ozon!"
+                    )
+                    return
+                elif product_name == 'end':
                     logger.info('Товар закончился')
                     await self.bot.send_message(
                         task["user_id"],

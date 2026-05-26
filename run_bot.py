@@ -7,7 +7,13 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from main import bot, dp
-from handlers import main_router
+from handlers import (
+    common_router,
+    products_router,
+    admin_router,
+    callbacks_router,
+    auth_ozon_router
+)
 from core.database import setup_database
 from utils.price_updater import update_all_prices
 from utils.logger import setup_logging
@@ -95,9 +101,13 @@ async def start_bot():
     logger.info("Удаление вебхуков...")
     await bot.delete_webhook(drop_pending_updates=True)
 
-    # Добавляем роутеры
+    # Добавляем роутеры (порядок важен: common_router с echo должен быть последним)
     logger.info("Регистрация обработчиков...")
-    dp.include_router(main_router)
+    dp.include_router(admin_router)
+    dp.include_router(products_router)
+    dp.include_router(auth_ozon_router)
+    dp.include_router(callbacks_router)
+    dp.include_router(common_router)  # Последний, т.к. содержит echo-обработчик
 
     # Запускаем опрос
     logger.info("Запуск polling...")

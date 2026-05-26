@@ -1,1 +1,17 @@
-from .handlers import main_router
+from .common import common_router
+from .products import products_router
+from .admin import admin_router
+from .callbacks import callbacks_router
+from .auth import auth_ozon_router
+
+# Для обратной совместимости с run_bot.py
+main_router = common_router
+
+__all__ = [
+    "common_router",
+    "products_router",
+    "admin_router",
+    "callbacks_router",
+    "auth_ozon_router",
+    "main_router",  # Обратная совместимость
+]
