@@ -60,19 +60,23 @@ async def parse_cart() -> list[dict]:
             logger.info("Убедитесь, что Chrome запущен с --remote-debugging-port=9222")
             return []
 
-        # Получаем страницу
+        # Получаем или создаём страницу
         if context.pages:
-            page = context.pages[0]
-        else:
-            page = await context.new_page()
+            # Закрываем все существующие страницы
+            for existing_page in context.pages:
+                await existing_page.close()
+            logger.info("Закрыты существующие вкладки")
 
-        # Применяем stealth
+        # Создаём новую чистую страницу
+        page = await context.new_page()
+
+        # Применяем stealth ДО перехода на Ozon
         stealth = Stealth(
             navigator_languages_override=('ru-RU', 'ru', 'en-US', 'en'),
             navigator_platform_override='Linux x86_64',
         )
         await stealth.apply_stealth_async(page)
-        logger.info("Stealth-патчи применены")
+        logger.info("Stealth-патчи применены к новой вкладке")
 
         # Переходим на страницу корзины
         logger.info(f"Переход на {CART_URL}")
@@ -128,10 +132,6 @@ async def parse_cart() -> list[dict]:
 
             except Exception as e:
                 logger.error(f"Ошибка при парсинге товара {i+1}: {e}")
-
-        # Открываем новую пустую вкладку перед закрытием текущей
-        await context.new_page()
-        logger.info("Открыта новая пустая вкладка")
 
         # Закрываем вкладку с корзиной
         await page.close()
