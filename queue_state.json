@@ -1,1 +1,15 @@
-[]
+[
+  {
+    "priority": 2,
+    "counter": 4,
+    "task": {
+      "type": "update_price",
+      "url": "https://www.ozon.ru/product/kole-dvoynoe-ozherele-1718901062/?at=NOtwQG2Roc0JwyVoc3NVg3WfygGmK8S0QPPW3sOmQRyg",
+      "user_id": 1189033386,
+      "product_id": 3,
+      "product_name": "Колье Двойное ожерелье",
+      "marketplace": null,
+      "added_at": "2026-05-27T14:10:17.575569"
+    }
+  }
+]

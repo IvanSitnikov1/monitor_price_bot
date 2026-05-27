@@ -1,11 +1,15 @@
 import asyncio
 import logging
+import os
 import random
 import re
+import subprocess
+import time
 from pathlib import Path
 from uuid import uuid4
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright_stealth import Stealth
 
 
 logger = logging.getLogger(__name__)
@@ -22,6 +26,51 @@ def _get_system_profile() -> Path:
     logger.info(f"Найден системный профиль: {system_profile}")
 
     return system_profile
+
+
+def _start_chrome_manually(user_data_dir: Path, port: int = 9222) -> subprocess.Popen | None:
+    """
+    Запускает Chrome вручную через subprocess (без Playwright).
+    Это обходит детект автоматизации, т.к. Chrome запускается как обычный процесс.
+
+    Args:
+        user_data_dir: Путь к профилю Chrome
+        port: Порт для remote debugging
+
+    Returns:
+        Процесс Chrome или None при ошибке
+    """
+    # Логируем DISPLAY для диагностики
+    display = os.environ.get("DISPLAY", "не установлен")
+    logger.info(f"DISPLAY переменная окружения: {display}")
+
+    chrome_cmd = [
+        "chromium",
+        f"--remote-debugging-port={port}",
+        f"--user-data-dir={user_data_dir}",
+        "--disable-blink-features=AutomationControlled",
+        "--disable-dev-shm-usage",
+        "--no-sandbox",
+        "--disable-gpu",
+        "--window-size=1920,1080",
+        "--start-maximized",
+    ]
+
+    try:
+        logger.info(f"Запуск Chrome вручную через subprocess: {' '.join(chrome_cmd)}")
+        process = subprocess.Popen(
+            chrome_cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True  # Отделяем от родительского процесса
+        )
+        logger.info(f"Chrome запущен вручную, PID: {process.pid}")
+        # Даём Chrome время на запуск
+        time.sleep(3)
+        return process
+    except Exception as e:
+        logger.error(f"Не удалось запустить Chrome вручную: {e}")
+        return None
 
 
 async def _human_like_behavior(page):
@@ -56,9 +105,129 @@ async def _human_delay(min_s=0.5, max_s=2.0):
     await asyncio.sleep(delay)
 
 
+async def _wait_for_captcha_solve(page, timeout: int = 120) -> bool:
+    """
+    Ожидает решения капчи пользователем.
+
+    Args:
+        page: Страница Playwright
+        timeout: Максимальное время ожидания в секундах
+
+    Returns:
+        True если капча решена, False если таймаут
+    """
+    logger.info("Обнаружена капча, ожидаем решения пользователем...")
+
+    try:
+        # Ждём исчезновения элементов капчи
+        # Озон использует разные типы капч, проверяем все известные селекторы
+        captcha_selectors = [
+            'text="Сопоставьте пазл"',
+            'text="двигая ползунок"',
+            '[class*="captcha"]',
+            '[id*="captcha"]',
+        ]
+
+        start_time = asyncio.get_event_loop().time()
+        check_interval = 2  # проверяем каждые 2 секунды
+
+        while (asyncio.get_event_loop().time() - start_time) < timeout:
+            # Проверяем, исчезла ли капча
+            captcha_found = False
+            for selector in captcha_selectors:
+                try:
+                    count = await page.locator(selector).count()
+                    if count > 0:
+                        captcha_found = True
+                        break
+                except Exception:
+                    pass
+
+            if not captcha_found:
+                logger.info("Капча решена!")
+                # Дополнительная пауза для стабилизации страницы
+                await asyncio.sleep(2)
+                return True
+
+            # Ждём перед следующей проверкой
+            await asyncio.sleep(check_interval)
+            logger.debug(f"Ожидание решения капчи... ({int(asyncio.get_event_loop().time() - start_time)}s)")
+
+        logger.warning(f"Таймаут ожидания решения капчи ({timeout}s)")
+        return False
+
+    except Exception as e:
+        logger.error(f"Ошибка при ожидании решения капчи: {e}")
+        return False
+
+
+async def _check_bot_detection(page) -> dict[str, any]:
+    """
+    Проверяет детект автоматизации через bot.sannysoft.com
+
+    Returns:
+        Словарь с результатами проверки
+    """
+    logger.info("Проверка детекта автоматизации через bot.sannysoft.com")
+
+    try:
+        await page.goto("https://bot.sannysoft.com/", timeout=30000)
+        await asyncio.sleep(3)
+
+        # Скриншот для визуальной проверки
+        screenshot_path = Path(f"debug_data/bot_detection_{uuid4()}.png").absolute()
+        await page.screenshot(path=str(screenshot_path))
+        logger.info(f"Скриншот детекта сохранён: {screenshot_path}")
+
+        # Извлекаем ключевые параметры
+        results = {}
+
+        # WebDriver
+        webdriver_elem = page.locator('tr:has-text("navigator.webdriver")').first
+        if await webdriver_elem.count() > 0:
+            webdriver_text = await webdriver_elem.text_content()
+            results['webdriver'] = webdriver_text
+            logger.info(f"WebDriver: {webdriver_text}")
+
+        # Chrome
+        chrome_elem = page.locator('tr:has-text("window.chrome")').first
+        if await chrome_elem.count() > 0:
+            chrome_text = await chrome_elem.text_content()
+            results['chrome'] = chrome_text
+            logger.info(f"Chrome: {chrome_text}")
+
+        # Permissions
+        permissions_elem = page.locator('tr:has-text("Permissions")').first
+        if await permissions_elem.count() > 0:
+            permissions_text = await permissions_elem.text_content()
+            results['permissions'] = permissions_text
+            logger.info(f"Permissions: {permissions_text}")
+
+        # Plugins
+        plugins_elem = page.locator('tr:has-text("Plugins")').first
+        if await plugins_elem.count() > 0:
+            plugins_text = await plugins_elem.text_content()
+            results['plugins'] = plugins_text
+            logger.info(f"Plugins: {plugins_text}")
+
+        # Languages
+        languages_elem = page.locator('tr:has-text("Languages")').first
+        if await languages_elem.count() > 0:
+            languages_text = await languages_elem.text_content()
+            results['languages'] = languages_text
+            logger.info(f"Languages: {languages_text}")
+
+        return results
+
+    except Exception as e:
+        logger.error(f"Ошибка при проверке детекта: {e}")
+        return {}
+
+
 async def scrape_ozon_product(url: str, user_id: int) -> tuple[str | None, str | None]:
     """
     Парсит данные товара Ozon, используя профиль пользователя или системный профиль.
+    Подключается к уже запущенному Chrome через CDP (Chrome DevTools Protocol).
 
     Args:
         url: URL товара
@@ -68,6 +237,7 @@ async def scrape_ozon_product(url: str, user_id: int) -> tuple[str | None, str |
         Кортеж (название, цена) или (None, None) при ошибке
     """
     logger.info(f"Начало процесса для ссылки: {url}, user_id: {user_id}")
+    logger.info(f"Детальное логирование включено")
 
     # Проверяем наличие профиля пользователя
     user_profile = Path(f"user_data/{user_id}").absolute()
@@ -79,186 +249,188 @@ async def scrape_ozon_product(url: str, user_id: int) -> tuple[str | None, str |
         user_data_dir = _get_system_profile()
         logger.info(f"Используется системный профиль: {user_data_dir}")
 
-    # Удаляем все возможные lock-файлы
-    lock_files = [
-        user_data_dir / "Default" / "SingletonLock",
-        user_data_dir / "SingletonLock",
-        user_data_dir / "lockfile"
-    ]
-    for lock_file in lock_files:
-        if lock_file.exists():
-            try:
-                lock_file.unlink()
-                logger.info(f"Удалён lock-файл: {lock_file}")
-            except Exception as e:
-                logger.warning(f"Не удалось удалить lock-файл {lock_file}: {e}")
+    # CDP endpoint
+    cdp_url = "http://localhost:9222"
+    chrome_process = None
 
     async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir=str(user_data_dir),
-            headless=False,
-            user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
-            args=[
-                '--disable-blink-features=AutomationControlled',
-                '--disable-dev-shm-usage',
-                '--no-sandbox',
-                '--disable-gpu',
-                '--window-size=1920,1080',
-                '--start-maximized',
-            ],
-            locale="ru-RU",
-            timezone_id="Europe/Moscow",
-        )
+        logger.info(f"Попытка подключения к Chrome через CDP: {cdp_url}")
 
-        # Расширенные stealth-скрипты
-        await context.add_init_script("""
-            // Базовые переопределения
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            Object.defineProperty(navigator, 'languages', { get: () => ['ru-RU', 'ru', 'en-US', 'en'] });
-            window.chrome = { runtime: {} };
+        try:
+            # Пытаемся подключиться к уже запущенному Chrome
+            browser = await p.chromium.connect_over_cdp(cdp_url)
+            logger.info("Успешно подключились к существующему Chrome")
 
-            // Переопределяем permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                    Promise.resolve({ state: Notification.permission }) :
-                    originalQuery(parameters)
-            );
+            # Получаем существующий контекст (первый)
+            contexts = browser.contexts
+            if contexts:
+                context = contexts[0]
+                logger.info(f"Используем существующий контекст, всего контекстов: {len(contexts)}")
+            else:
+                logger.error("Нет доступных контекстов в браузере")
+                await browser.close()
+                return None, None
 
-            // Скрываем автоматизацию через CDP
-            delete navigator.__proto__.webdriver;
+        except Exception as e:
+            logger.warning(f"Не удалось подключиться к Chrome через CDP: {e}")
+            logger.info("Запускаем Chrome вручную через subprocess...")
 
-            // Переопределяем navigator.platform
-            Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' });
+            # Запускаем Chrome вручную через subprocess (НЕ через Playwright!)
+            chrome_process = _start_chrome_manually(user_data_dir, port=9222)
+            if not chrome_process:
+                logger.error("Не удалось запустить Chrome")
+                return None, None
 
-            // Переопределяем navigator.hardwareConcurrency
-            Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+            # Ждём, пока Chrome запустится и откроет CDP порт
+            logger.info("Ожидание запуска Chrome...")
+            await asyncio.sleep(5)
 
-            // Переопределяем navigator.deviceMemory
-            Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+            # Теперь подключаемся к запущенному Chrome
+            try:
+                browser = await p.chromium.connect_over_cdp(cdp_url)
+                logger.info("Успешно подключились к Chrome, запущенному через subprocess")
 
-            // Переопределяем screen параметры
-            Object.defineProperty(screen, 'availWidth', { get: () => 1920 });
-            Object.defineProperty(screen, 'availHeight', { get: () => 1080 });
+                contexts = browser.contexts
+                if contexts:
+                    context = contexts[0]
+                    logger.info(f"Используем контекст, всего контекстов: {len(contexts)}")
+                else:
+                    logger.error("Нет доступных контекстов")
+                    await browser.close()
+                    if chrome_process:
+                        chrome_process.terminate()
+                    return None, None
 
-            // Добавляем реалистичные плагины
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => {
-                    return [
-                        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
-                        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
-                        { name: 'Native Client', filename: 'internal-nacl-plugin' }
-                    ];
-                }
-            });
+            except Exception as e2:
+                logger.error(f"Не удалось подключиться к Chrome после запуска: {e2}")
+                if chrome_process:
+                    chrome_process.terminate()
+                return None, None
 
-            // Переопределяем getBattery (для мобильных устройств)
-            if (navigator.getBattery) {
-                navigator.getBattery = () => Promise.resolve({
-                    charging: true,
-                    chargingTime: 0,
-                    dischargingTime: Infinity,
-                    level: 1
-                });
-            }
-            
-            // Canvas fingerprint рандомизация
-            const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-            HTMLCanvasElement.prototype.toDataURL = function(type) {
-                const dataURL = originalToDataURL.apply(this, arguments);
-                return dataURL; // + небольшой шум через getImageData
-            };
-            
-            // WebGL fingerprint
-            const getParameter = WebGLRenderingContext.prototype.getParameter;
-            WebGLRenderingContext.prototype.getParameter = function(parameter) {
-                if (parameter === 37445) return 'Intel Inc.';
-                if (parameter === 37446) return 'Intel Iris OpenGL Engine';
-                return getParameter.apply(this, arguments);
-            };
-            
-            // AudioContext fingerprint
-            const originalGetChannelData = AudioBuffer.prototype.getChannelData;
-            AudioBuffer.prototype.getChannelData = function() {
-                const array = originalGetChannelData.apply(this, arguments);
-                // добавить микро-шум
-                for (let i = 0; i < array.length; i += 100) {
-                    array[i] += (Math.random() - 0.5) * 0.0000001;
-                }
-                return array;
-            };
-        """)
+            logger.info("Chrome запущен с remote debugging на порту 9222")
 
         # Закрываем все лишние вкладки, оставляем только одну
         if context.pages:
             page = context.pages[0]
+            logger.info(f"Используем существующую страницу, всего страниц: {len(context.pages)}")
             # Закрываем все остальные вкладки
-            for extra_page in context.pages[1:]:
+            for i, extra_page in enumerate(context.pages[1:], 1):
                 await extra_page.close()
+                logger.info(f"Закрыта лишняя вкладка {i}")
         else:
             page = await context.new_page()
+            logger.info("Создана новая страница")
+
+        # Применяем playwright-stealth с настройками под русский профиль
+        stealth = Stealth(
+            navigator_languages_override=('ru-RU', 'ru', 'en-US', 'en'),
+            navigator_platform_override='Linux x86_64',
+            navigator_user_agent_override='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+        )
+        await stealth.apply_stealth_async(page)
+        logger.info("Stealth-патчи применены с русской локалью")
 
         # Устанавливаем реалистичный viewport
         await page.set_viewport_size({"width": 1920, "height": 1080})
+        logger.info("Viewport установлен: 1920x1080")
 
-        # Сразу переходим на страницу товара (cookies уже есть в user_data_dir)
-        await page.goto(url, timeout=45000)
+        # Переходим на страницу товара
+        logger.info(f"Переход на страницу товара: {url}")
+        await page.goto(url, timeout=45000, wait_until='domcontentloaded')
+        logger.info("Страница загружена (domcontentloaded)")
+
+        logger.info("Страница загружена")
 
         # Случайная пауза после загрузки
+        logger.info("Пауза после загрузки")
         await _human_delay()
 
         # Имитируем человеческое поведение
+        logger.info("Имитация человеческого поведения")
         await _human_like_behavior(page)
 
         # Ожидание стабилизации страницы
         try:
+            logger.info("Ожидание networkidle")
             await page.wait_for_load_state('networkidle', timeout=10000)
+            logger.info("Networkidle достигнут")
         except PlaywrightTimeoutError:
             logger.warning("Networkidle timeout - продолжаем парсинг")
 
         # Ещё одна имитация поведения перед парсингом
+        logger.info("Дополнительная имитация поведения")
         await _human_like_behavior(page)
         await asyncio.sleep(random.uniform(1, 2))
 
+        # Сохраняем скриншот для отладки
         Path(f"debug_data").absolute().mkdir(parents=True, exist_ok=True)
-        await page.screenshot(path=f'debug_data/{uuid4()}.png')
+        screenshot_path = f'debug_data/ozon_{uuid4()}.png'
+        await page.screenshot(path=screenshot_path)
+        logger.info(f"Скриншот страницы товара сохранён: {screenshot_path}")
+
+        # --- Проверка и ожидание решения капчи ---
+        logger.info("Проверка наличия капчи")
+        captcha_element = page.locator('text="Сопоставьте пазл"').first
+        if await captcha_element.count() > 0:
+            logger.warning("Обнаружена капча! Ожидаем решения пользователем...")
+            captcha_solved = await _wait_for_captcha_solve(page, timeout=120)
+            if not captcha_solved:
+                logger.error("Капча не была решена в течение 120 секунд")
+                await context.close()
+                return None, None
+            logger.info("Капча решена, продолжаем парсинг")
+            # Дополнительная пауза после решения капчи
+            await asyncio.sleep(2)
+            # Сохраняем скриншот после решения капчи
+            screenshot_path_after = f'debug_data/ozon_after_captcha_{uuid4()}.png'
+            await page.screenshot(path=screenshot_path_after)
+            logger.info(f"Скриншот после капчи сохранён: {screenshot_path_after}")
+        else:
+            logger.info("Капча не обнаружена")
 
         # --- Извлечение названия и цены ---
         product_name = None
         price = None
 
         # проверяем страницу ошибки сети Ozon
+        logger.info("Проверка на страницу 'нет соединения'")
         no_connection = page.locator(
             'div:has-text("Похоже, нет соединения")'
         ).first
 
         # сначала проверяем, не закончился ли товар
+        logger.info("Проверка на 'товар закончился'")
         out_of_stock = page.locator(
             'h2:has-text("Этот товар закончился")'
         ).first
 
         if await no_connection.count() > 0:
+            logger.warning("Обнаружена страница 'нет соединения' - возможна блокировка")
             product_name = "no_connection"
         elif await out_of_stock.count() > 0:
+            logger.info("Товар закончился")
             product_name = "end"
         else:
+            logger.info("Начинаем извлечение данных товара")
             try:
+                logger.info("Поиск элемента h1 с названием")
                 title_element = page.locator('h1').first
                 product_name = await title_element.text_content(timeout=5000)
                 if product_name:
                     product_name = product_name.strip()
-                logger.info(f"Название: {product_name}")
+                logger.info(f"Название найдено: {product_name}")
             except Exception as e:
                 logger.error(f"Не удалось найти название: {e}")
 
             # --- Извлечение цены ---
             try:
+                logger.info("Поиск элемента с ценой (span.tsHeadline600Large)")
                 # Озон часто меняет классы, используем ваш селектор + запасной вариант
                 price_locator = page.locator('span.tsHeadline600Large').first
 
                 # Если ваш старый селектор не сработал, пробуем универсальный по значку рубля
                 if await price_locator.count() == 0:
+                    logger.info("Основной селектор не сработал, пробуем [data-attribute='price']")
                     price_locator = page.locator('[data-attribute="price"]').first
 
                 price_text = await price_locator.text_content(timeout=5000)
@@ -273,9 +445,28 @@ async def scrape_ozon_product(url: str, user_id: int) -> tuple[str | None, str |
                         if price_str.isdigit():
                             price = f"{price_str} ₽"
                             logger.info(f"Итоговая цена: {price}")
+                        else:
+                            logger.warning(f"Цена не является числом: {price_str}")
+                    else:
+                        logger.warning(f"Не удалось извлечь цифры из текста цены: {price_text}")
 
             except Exception as e:
                 logger.error(f"Не удалось найти цену: {e}")
 
-        await context.close()
+        logger.info(f"Закрытие контекста браузера")
+
+        # Если подключались через CDP, не закрываем браузер (он должен остаться запущенным)
+        try:
+            # Это CDP-подключение, просто отключаемся
+            await browser.close()
+            logger.info("Отключились от CDP браузера (браузер остался запущенным)")
+        except Exception as e:
+            logger.warning(f"Ошибка при закрытии: {e}")
+
+        # Если запускали Chrome сами, НЕ убиваем процесс — оставляем работать для следующих запросов
+        # Chrome будет переиспользоваться между запросами
+        if chrome_process:
+            logger.info(f"Chrome процесс (PID: {chrome_process.pid}) оставлен запущенным для переиспользования")
+
+        logger.info(f"Результат парсинга: название='{product_name}', цена='{price}'")
         return product_name, price
