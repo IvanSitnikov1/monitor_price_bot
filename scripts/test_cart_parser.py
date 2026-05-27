@@ -186,16 +186,15 @@ async def main_loop():
         # Сохраняем результаты
         save_results(products)
 
-        # Рандомная задержка: 1-2 часа + рандомные минуты и секунды
-        hours = random.uniform(1, 2)
-        minutes = random.randint(0, 59)
+        # Рандомная задержка
+        minutes = random.randint(0, 10)
         seconds = random.randint(0, 59)
-        total_seconds = int(hours * 3600 + minutes * 60 + seconds)
+        total_seconds = int(minutes * 60 + seconds)
 
         next_run = datetime.now().timestamp() + total_seconds
         next_run_str = datetime.fromtimestamp(next_run).strftime('%Y-%m-%d %H:%M:%S')
 
-        logger.info(f"Следующий запуск через {hours:.2f}ч {minutes}м {seconds}с")
+        logger.info(f"Следующий запуск через {minutes}м {seconds}с")
         logger.info(f"Следующий запуск в: {next_run_str}")
         logger.info("=" * 80)
 
