@@ -3,18 +3,20 @@
 
 # Останавливаем старые процессы
 pkill -f "remote-debugging-port=9222" 2>/dev/null
+pkill Xvfb 2>/dev/null
+rm -f /tmp/.X99-lock 2>/dev/null
 sleep 2
 
 # Запускаем xvfb с реалистичными параметрами дисплея
-Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
+Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset >/dev/null 2>&1 &
 XVFB_PID=$!
 export DISPLAY=:99
 
 # Ждём запуска Xvfb
-sleep 2
+sleep 3
 
 # Запускаем Chrome с anti-detect флагами
-nohup chromium \
+DISPLAY=:99 nohup chromium \
   --remote-debugging-port=9222 \
   --user-data-dir=/home/ivans/monitor_price_bot/user_data/1189033386 \
   --disable-blink-features=AutomationControlled \
@@ -43,9 +45,20 @@ nohup chromium \
 
 CHROME_PID=$!
 
-echo "Xvfb запущен (PID: $XVFB_PID) на дисплее :99"
-echo "Chrome запущен (PID: $CHROME_PID) с CDP на порту 9222"
-echo "Логи Chrome: /tmp/chromium.log"
-echo ""
-echo "Для остановки:"
-echo "  kill $CHROME_PID $XVFB_PID"
+# Ждём запуска Chrome
+sleep 3
+
+# Проверяем что Chrome запустился
+if curl -s http://localhost:9222/json/version >/dev/null 2>&1; then
+  echo "✓ Xvfb запущен (PID: $XVFB_PID) на дисплее :99"
+  echo "✓ Chrome запущен (PID: $CHROME_PID) с CDP на порту 9222"
+  echo "Логи Chrome: /tmp/chromium.log"
+  echo ""
+  echo "Для остановки:"
+  echo "  kill $CHROME_PID $XVFB_PID"
+else
+  echo "✗ Ошибка: Chrome не запустился"
+  echo "Смотри логи: /tmp/chromium.log"
+  kill $XVFB_PID 2>/dev/null
+  exit 1
+fi
