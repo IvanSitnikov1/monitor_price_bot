@@ -60,22 +60,21 @@ async def parse_cart() -> list[dict]:
             logger.info("Убедитесь, что Chrome запущен с --remote-debugging-port=9222")
             return []
 
-        # Создаём новую чистую страницу
-        page = await context.new_page()
+        # Используем существующую вкладку или создаём новую только один раз
+        if context.pages:
+            page = context.pages[0]
+            logger.info("Используем существующую вкладку")
+        else:
+            page = await context.new_page()
+            logger.info("Создана новая вкладка")
 
-        # Закрываем старые вкладки (кроме только что созданной)
-        if len(context.pages) > 1:
-            for existing_page in context.pages[:-1]:
-                await existing_page.close()
-            logger.info(f"Закрыто старых вкладок: {len(context.pages) - 1}")
-
-        # Применяем stealth ДО перехода на Ozon
-        stealth = Stealth(
-            navigator_languages_override=('ru-RU', 'ru', 'en-US', 'en'),
-            navigator_platform_override='Linux x86_64',
-        )
-        await stealth.apply_stealth_async(page)
-        logger.info("Stealth-патчи применены к новой вкладке")
+            # Применяем stealth только для новой вкладки
+            stealth = Stealth(
+                navigator_languages_override=('ru-RU', 'ru', 'en-US', 'en'),
+                navigator_platform_override='Linux x86_64',
+            )
+            await stealth.apply_stealth_async(page)
+            logger.info("Stealth-патчи применены")
 
         # Переходим на страницу корзины
         logger.info(f"Переход на {CART_URL}")
@@ -131,10 +130,6 @@ async def parse_cart() -> list[dict]:
 
             except Exception as e:
                 logger.error(f"Ошибка при парсинге товара {i+1}: {e}")
-
-        # Переходим на пустую страницу вместо закрытия вкладки
-        await page.goto('about:blank')
-        logger.info("Вкладка очищена (about:blank)")
 
         logger.info(f"Парсинг завершён, найдено товаров: {len(products)}")
         return products
