@@ -129,7 +129,14 @@ async def parse_cart() -> list[dict]:
             except Exception as e:
                 logger.error(f"Ошибка при парсинге товара {i+1}: {e}")
 
-        await browser.close()
+        # Открываем новую пустую вкладку перед закрытием текущей
+        await context.new_page()
+        logger.info("Открыта новая пустая вкладка")
+
+        # Закрываем вкладку с корзиной
+        await page.close()
+        logger.info("Вкладка с корзиной закрыта")
+
         logger.info(f"Парсинг завершён, найдено товаров: {len(products)}")
         return products
 
