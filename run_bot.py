@@ -80,15 +80,6 @@ async def start_bot():
             replace_existing=True
         )
 
-    scheduler.add_job(
-        schedule_price_update_with_delay,
-        trigger=CronTrigger(hour=11, minute=14),
-        args=[task_queue],
-        id=f"update_prices_{t}",
-        name=f"Обновление !!! цен {t}",
-        replace_existing=True
-    )
-
     scheduler.start()
     logger.info("Планировщик задач запущен")
 
