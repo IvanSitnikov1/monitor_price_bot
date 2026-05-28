@@ -23,22 +23,19 @@ from utils.queue_worker import TaskQueue
 logger = logging.getLogger(__name__)
 
 
-async def schedule_price_update_with_delay(task_queue, time_window: str):
+async def schedule_price_update_with_delay(task_queue):
     """
     Запускает обновление цен со случайной задержкой в пределах 2-часового окна.
 
     Args:
         task_queue: Экземпляр TaskQueue для добавления задач
-        time_window: Название временного окна для логирования ("ночь" или "день")
     """
-    # Генерируем случайную задержку от 0 до 120 минут (2 часа)
-    delay_seconds = random.randint(0, 120 * 60)
-
-    hours = delay_seconds // 3600
+    # Генерируем случайную задержку в пределах 10 минут
+    delay_seconds = random.randint(0, 10 * 60)
     minutes = (delay_seconds % 3600) // 60
     seconds = delay_seconds % 60
 
-    logger.info(f"Следующее обновление цен ({time_window}) через {hours}ч {minutes}м {seconds}с")
+    logger.info(f"Следующее обновление цен через {minutes}м {seconds}с")
 
     # Ждем случайное время
     await asyncio.sleep(delay_seconds)
@@ -73,29 +70,27 @@ async def start_bot():
     # Настраиваем планировщик задач
     scheduler = AsyncIOScheduler()
 
-    # Обновление цен с 0 до 2 часов (запуск в 00:00 + случайная задержка)
-    scheduler.add_job(
-        schedule_price_update_with_delay,
-        trigger=CronTrigger(hour=0, minute=0),
-        args=[task_queue, "ночь"],
-        id="update_prices_night",
-        name="Обновление цен (ночь)",
-        replace_existing=True
-    )
+    for t in range(0, 24, 1):
+        scheduler.add_job(
+            schedule_price_update_with_delay,
+            trigger=CronTrigger(hour=t, minute=0),
+            args=[task_queue],
+            id=f"update_prices_{t}",
+            name=f"Обновление цен {t}",
+            replace_existing=True
+        )
 
-    # Обновление цен с 12 до 14 часов (запуск в 12:00 + случайная задержка)
     scheduler.add_job(
         schedule_price_update_with_delay,
-        trigger=CronTrigger(hour=12, minute=0),
-        args=[task_queue, "день"],
-        id="update_prices_day",
-        name="Обновление цен (день)",
+        trigger=CronTrigger(hour=11, minute=14),
+        args=[task_queue],
+        id=f"update_prices_{t}",
+        name=f"Обновление !!! цен {t}",
         replace_existing=True
     )
 
     scheduler.start()
     logger.info("Планировщик задач запущен")
-    logger.info("Обновление цен: 00:00-02:00 и 12:00-14:00 ежедневно (случайное время)")
 
     # Удаляем вебхуки и пропускаем старые сообщения
     logger.info("Удаление вебхуков...")

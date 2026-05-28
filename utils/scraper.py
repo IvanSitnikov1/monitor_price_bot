@@ -470,3 +470,194 @@ async def scrape_ozon_product(url: str, user_id: int) -> tuple[str | None, str |
 
         logger.info(f"Результат парсинга: название='{product_name}', цена='{price}'")
         return product_name, price
+
+
+async def scrape_ozon_cart(url: str, user_id: int) -> list[dict[str, str]] | None:
+    """
+    Парсит корзину Ozon и извлекает список товаров.
+
+    Args:
+        url: URL корзины (формат: https://www.ozon.ru/cart?share=...)
+        user_id: ID пользователя Telegram
+
+    Returns:
+        Список словарей с данными товаров [{"name": "...", "price": "..."}] или None при ошибке
+    """
+    logger.info(f"Начало парсинга корзины: {url}, user_id: {user_id}")
+
+    # Проверяем наличие профиля пользователя
+    user_profile = Path(f"user_data/{user_id}").absolute()
+    if user_profile.exists() and (user_profile / "Default").exists():
+        user_data_dir = user_profile
+        logger.info(f"Используется профиль пользователя: {user_data_dir}")
+    else:
+        # Профиль пользователя не найден, используем системный
+        user_data_dir = _get_system_profile()
+        logger.info(f"Используется системный профиль: {user_data_dir}")
+
+    # CDP endpoint
+    cdp_url = "http://localhost:9222"
+    chrome_process = None
+
+    async with async_playwright() as p:
+        logger.info(f"Попытка подключения к Chrome через CDP: {cdp_url}")
+
+        try:
+            # Пытаемся подключиться к уже запущенному Chrome
+            browser = await p.chromium.connect_over_cdp(cdp_url)
+            logger.info("Успешно подключились к существующему Chrome")
+
+            contexts = browser.contexts
+            if contexts:
+                context = contexts[0]
+                logger.info(f"Используем существующий контекст, всего контекстов: {len(contexts)}")
+            else:
+                logger.error("Нет доступных контекстов в браузере")
+                await browser.close()
+                return None
+
+        except Exception as e:
+            logger.warning(f"Не удалось подключиться к Chrome через CDP: {e}")
+            logger.info("Запускаем Chrome вручную через subprocess...")
+
+            chrome_process = _start_chrome_manually(user_data_dir, port=9222)
+            if not chrome_process:
+                logger.error("Не удалось запустить Chrome")
+                return None
+
+            logger.info("Ожидание запуска Chrome...")
+            await asyncio.sleep(5)
+
+            try:
+                browser = await p.chromium.connect_over_cdp(cdp_url)
+                logger.info("Успешно подключились к Chrome, запущенному через subprocess")
+
+                contexts = browser.contexts
+                if contexts:
+                    context = contexts[0]
+                    logger.info(f"Используем контекст, всего контекстов: {len(contexts)}")
+                else:
+                    logger.error("Нет доступных контекстов")
+                    await browser.close()
+                    if chrome_process:
+                        chrome_process.terminate()
+                    return None
+
+            except Exception as e2:
+                logger.error(f"Не удалось подключиться к Chrome после запуска: {e2}")
+                if chrome_process:
+                    chrome_process.terminate()
+                return None
+
+        # Закрываем все лишние вкладки, оставляем только одну
+        if context.pages:
+            page = context.pages[0]
+            logger.info(f"Используем существующую страницу, всего страниц: {len(context.pages)}")
+            for i, extra_page in enumerate(context.pages[1:], 1):
+                await extra_page.close()
+                logger.info(f"Закрыта лишняя вкладка {i}")
+        else:
+            page = await context.new_page()
+            logger.info("Создана новая страница")
+
+        # Применяем playwright-stealth
+        stealth = Stealth(
+            navigator_languages_override=('ru-RU', 'ru', 'en-US', 'en'),
+            navigator_platform_override='Linux x86_64',
+            navigator_user_agent_override='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+        )
+        await stealth.apply_stealth_async(page)
+        logger.info("Stealth-патчи применены")
+
+        await page.set_viewport_size({"width": 1920, "height": 1080})
+
+        # Переходим на страницу корзины
+        logger.info(f"Переход на страницу корзины: {url}")
+        await page.goto(url, timeout=45000, wait_until='domcontentloaded')
+        logger.info("Страница корзины загружена")
+
+        await _human_delay()
+        await _human_like_behavior(page)
+
+        try:
+            await page.wait_for_load_state('networkidle', timeout=10000)
+        except PlaywrightTimeoutError:
+            logger.warning("Networkidle timeout - продолжаем парсинг")
+
+        # Сохраняем скриншот
+        Path(f"debug_data").absolute().mkdir(parents=True, exist_ok=True)
+        screenshot_path = f'debug_data/cart_{uuid4()}.png'
+        await page.screenshot(path=screenshot_path)
+        logger.info(f"Скриншот корзины сохранён: {screenshot_path}")
+
+        # Проверка капчи
+        logger.info("Проверка наличия капчи")
+        captcha_element = page.locator('text="Сопоставьте пазл"').first
+        if await captcha_element.count() > 0:
+            logger.warning("Обнаружена капча! Ожидаем решения пользователем...")
+            captcha_solved = await _wait_for_captcha_solve(page, timeout=120)
+            if not captcha_solved:
+                logger.error("Капча не была решена в течение 120 секунд")
+                await browser.close()
+                return None
+            logger.info("Капча решена, продолжаем парсинг")
+            await asyncio.sleep(2)
+
+        # Парсинг товаров из корзины
+        logger.info("Начинаем извлечение товаров из корзины")
+        products = []
+
+        try:
+            # Ищем все блоки товаров (div.checkout_s6.checkout_s8)
+            product_blocks = page.locator('div.checkout_s6.checkout_s8')
+            count = await product_blocks.count()
+            logger.info(f"Найдено блоков товаров: {count}")
+
+            for i in range(count):
+                block = product_blocks.nth(i)
+
+                # Извлекаем название (span.tsCompact400Large)
+                try:
+                    name_element = block.locator('span.tsCompact400Large').first
+                    name = await name_element.text_content(timeout=3000)
+                    name = name.strip() if name else None
+                except Exception as e:
+                    logger.warning(f"Не удалось извлечь название товара {i}: {e}")
+                    name = None
+
+                # Извлекаем цену (span.tsHeadline400Small внутри div.checkout_t)
+                try:
+                    price_element = block.locator('div.checkout_t span.tsHeadline400Small').first
+                    price_text = await price_element.text_content(timeout=3000)
+                    if price_text:
+                        # Очищаем цену от пробелов и оставляем только цифры + ₽
+                        match = re.search(r'([\d\s\xa0]+)', price_text)
+                        if match:
+                            price_str = re.sub(r'[\s\xa0]', '', match.group(1))
+                            price = f"{price_str} ₽"
+                        else:
+                            price = None
+                    else:
+                        price = None
+                except Exception as e:
+                    logger.warning(f"Не удалось извлечь цену товара {i}: {e}")
+                    price = None
+
+                if name and price:
+                    products.append({"name": name, "price": price})
+                    logger.info(f"Товар {i+1}: {name} - {price}")
+                else:
+                    logger.warning(f"Товар {i+1}: пропущен (name={name}, price={price})")
+
+        except Exception as e:
+            logger.error(f"Ошибка при парсинге товаров: {e}")
+            await browser.close()
+            return None
+
+        await browser.close()
+        logger.info(f"Парсинг завершён, найдено товаров: {len(products)}")
+
+        if chrome_process:
+            logger.info(f"Chrome процесс (PID: {chrome_process.pid}) оставлен запущенным")
+
+        return products if products else None

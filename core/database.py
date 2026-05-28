@@ -15,13 +15,24 @@ async def setup_database():
         await db.execute("PRAGMA foreign_keys = ON")
 
         await db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                cart_url TEXT,
+                date_registered TEXT NOT NULL
+            )
+        """)
+
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 url TEXT NOT NULL,
                 name TEXT NOT NULL,
                 marketplace TEXT NOT NULL DEFAULT 'ozon',
-                date_added TEXT NOT NULL
+                date_added TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
             )
         """)
 
@@ -449,11 +460,86 @@ async def get_all_user_ids() -> list[int]:
     """
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "SELECT DISTINCT user_id FROM products ORDER BY user_id"
+            "SELECT user_id FROM users ORDER BY user_id"
         )
 
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
+
+
+async def register_user(user_id: int, username: str | None, first_name: str | None):
+    """
+    Регистрирует нового пользователя в системе.
+
+    Args:
+        user_id: ID пользователя Telegram
+        username: Username пользователя (опционально)
+        first_name: Имя пользователя (опционально)
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        date_now = datetime.now().isoformat()
+
+        # Используем INSERT OR IGNORE чтобы не перезаписывать существующих пользователей
+        await db.execute("""
+            INSERT OR IGNORE INTO users (user_id, username, first_name, date_registered)
+            VALUES (?, ?, ?, ?)
+        """, (user_id, username, first_name, date_now))
+
+        await db.commit()
+
+
+async def save_user_cart(user_id: int, cart_url: str):
+    """
+    Сохраняет или обновляет ссылку на корзину пользователя.
+
+    Args:
+        user_id: ID пользователя Telegram
+        cart_url: URL корзины Ozon
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            UPDATE users SET cart_url = ? WHERE user_id = ?
+        """, (cart_url, user_id))
+
+        await db.commit()
+
+
+async def get_user_cart(user_id: int) -> str | None:
+    """
+    Получает ссылку на корзину пользователя.
+
+    Args:
+        user_id: ID пользователя Telegram
+
+    Returns:
+        URL корзины или None если корзина не сохранена
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT cart_url FROM users WHERE user_id = ?",
+            (user_id,)
+        )
+
+        result = await cursor.fetchone()
+        return result[0] if result and result[0] else None
+
+
+async def get_all_user_carts() -> list[dict]:
+    """
+    Получает список всех пользователей с их корзинами.
+
+    Returns:
+        Список словарей с полями: user_id, cart_url
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute(
+            "SELECT user_id, cart_url FROM users WHERE cart_url IS NOT NULL ORDER BY user_id"
+        )
+
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
 
 
 async def broadcast_to_users(bot, message: str):

@@ -4,7 +4,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 main_kb = ReplyKeyboardMarkup(
     keyboard=[
         [
-            KeyboardButton(text="Добавить позицию"),
+            KeyboardButton(text="Добавить корзину"),
             KeyboardButton(text="Список позиций"),
         ],
         [
@@ -18,7 +18,7 @@ main_kb = ReplyKeyboardMarkup(
 admin_kb = ReplyKeyboardMarkup(
     keyboard=[
         [
-            KeyboardButton(text="Добавить позицию"),
+            KeyboardButton(text="Добавить корзину"),
             KeyboardButton(text="Список позиций"),
         ],
         [
