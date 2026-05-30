@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Literal
 
 from utils.scraper import scrape_ozon_product, scrape_ozon_cart
+from utils.browser_manager import BrowserManager
 from core.database import (
     add_product,
     update_product_price,
@@ -40,6 +41,7 @@ class TaskQueue:
         self.running = False
         self.worker_task = None
         self.counter = 0  # Счетчик для разрешения конфликтов приоритетов
+        self.browser_manager = BrowserManager()  # Менеджер браузеров для переиспользования
 
     async def start(self):
         """Запускает воркер очереди"""
@@ -273,11 +275,22 @@ class TaskQueue:
 
         logger.info(f"Начало обработки корзины для пользователя {user_id}")
 
-        # Парсим корзину (до 3 попыток)
+        # Парсим корзину (до 3 попыток) с использованием BrowserManager
         cart_products = None
         for attempt in range(1, 4):
             logger.info(f"Попытка парсинга корзины {attempt}/3: {cart_url}")
-            cart_products = await scrape_ozon_cart(cart_url, user_id=user_id)
+
+            # Определяем, нужно ли обновлять страницу
+            # Проверяем, есть ли уже активный браузер для этого пользователя
+            is_refresh = user_id in self.browser_manager._instances and \
+                         self.browser_manager._instances[user_id]._cart_page is not None
+
+            cart_products = await scrape_ozon_cart(
+                cart_url,
+                user_id=user_id,
+                browser_manager=self.browser_manager,
+                is_refresh=is_refresh
+            )
 
             if cart_products:
                 logger.info(f"Корзина успешно спарсена: {len(cart_products)} товаров")
@@ -385,11 +398,22 @@ class TaskQueue:
 
         logger.info(f"Начало обновления цен через корзину для пользователя {user_id}")
 
-        # Парсим корзину (до 3 попыток)
+        # Парсим корзину (до 3 попыток) с использованием BrowserManager
         cart_products = None
         for attempt in range(1, 4):
             logger.info(f"Попытка парсинга корзины {attempt}/3: {cart_url}")
-            cart_products = await scrape_ozon_cart(cart_url, user_id=user_id)
+
+            # Определяем, нужно ли обновлять страницу
+            # Проверяем, есть ли уже активный браузер для этого пользователя
+            is_refresh = user_id in self.browser_manager._instances and \
+                         self.browser_manager._instances[user_id]._cart_page is not None
+
+            cart_products = await scrape_ozon_cart(
+                cart_url,
+                user_id=user_id,
+                browser_manager=self.browser_manager,
+                is_refresh=is_refresh
+            )
 
             if cart_products:
                 logger.info(f"Корзина успешно спарсена: {len(cart_products)} товаров")
