@@ -293,6 +293,17 @@ class TaskQueue:
                 maintenance_callback=self._activate_maintenance_mode
             )
 
+            # Проверяем на специальный маркер maintenance_required
+            if cart_products == "maintenance_required":
+                logger.error("Получен маркер maintenance_required - прерываем попытки парсинга")
+                await self.bot.send_message(
+                    user_id,
+                    "❌ Не удалось получить данные корзины.\n\n"
+                    "Обнаружена блокировка, разблокировка не удалась.\n"
+                    "Бот переведён в режим техработ."
+                )
+                return
+
             if cart_products:
                 logger.info(f"Корзина успешно спарсена: {len(cart_products)} товаров")
                 break
@@ -416,6 +427,11 @@ class TaskQueue:
                 is_refresh=is_refresh,
                 maintenance_callback=self._activate_maintenance_mode
             )
+
+            # Проверяем на специальный маркер maintenance_required
+            if cart_products == "maintenance_required":
+                logger.error("Получен маркер maintenance_required - прерываем попытки парсинга")
+                return
 
             if cart_products:
                 logger.info(f"Корзина успешно спарсена: {len(cart_products)} товаров")

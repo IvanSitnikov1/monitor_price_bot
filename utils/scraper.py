@@ -107,7 +107,7 @@ async def _human_delay(min_s=0.5, max_s=2.0):
 
 async def _unblock_ozon(page) -> bool:
     """
-    Разблокирует доступ к Озону через поиск Google.
+    Разблокирует доступ к Озону через поиск Яндекс.
 
     Args:
         page: Страница Playwright
@@ -115,16 +115,18 @@ async def _unblock_ozon(page) -> bool:
     Returns:
         True если разблокировка успешна, False при ошибке
     """
-    logger.info("Попытка разблокировки через Google поиск...")
+    logger.info("Попытка разблокировки через Яндекс поиск...")
 
     try:
-        # Открываем Google
-        await page.goto("https://www.google.com", timeout=30000)
+        # Открываем Яндекс
+        await page.goto("https://ya.ru/", timeout=30000)
         await asyncio.sleep(2)
 
-        # Ищем поле поиска и вводим "ozon.ru"
-        search_box = page.locator('textarea[name="q"]').first
-        await search_box.fill("ozon.ru")
+        # Ищем поле поиска и вводим "ozon"
+        search_box = page.locator('textarea#text').first
+        await search_box.click()
+        await asyncio.sleep(0.5)
+        await search_box.fill("ozon")
         await asyncio.sleep(1)
         await search_box.press("Enter")
 
@@ -140,11 +142,11 @@ async def _unblock_ozon(page) -> bool:
         await page.wait_for_load_state('networkidle', timeout=10000)
         await asyncio.sleep(3)
 
-        logger.info("Разблокировка через Google выполнена успешно")
+        logger.info("Разблокировка через Яндекс выполнена успешно")
         return True
 
     except Exception as e:
-        logger.error(f"Ошибка при разблокировке через Google: {e}")
+        logger.error(f"Ошибка при разблокировке через Яндекс: {e}")
         return False
 
 
@@ -521,7 +523,7 @@ async def scrape_ozon_cart(
     browser_manager=None,
     is_refresh: bool = False,
     maintenance_callback=None
-) -> list[dict[str, str]] | None:
+) -> list[dict[str, str]] | str | None:
     """
     Парсит корзину Ozon и извлекает список товаров.
 
@@ -533,7 +535,9 @@ async def scrape_ozon_cart(
         maintenance_callback: Callback для активации maintenance mode при неудачной разблокировке
 
     Returns:
-        Список словарей с данными товаров [{"name": "...", "price": "..."}] или None при ошибке
+        Список словарей с данными товаров [{"name": "...", "price": "..."}],
+        строка "maintenance_required" при неудачной разблокировке,
+        или None при других ошибках
     """
     logger.info(f"Начало парсинга корзины: {url}, user_id: {user_id}, is_refresh: {is_refresh}")
 
@@ -748,7 +752,9 @@ async def scrape_ozon_cart(
 
                     if not browser_manager:
                         await browser.close()
-                    return None
+
+                    # Возвращаем специальный маркер для прерывания повторных попыток
+                    return "maintenance_required"
 
                 # Возвращаемся на страницу корзины
                 logger.info(f"Повторный переход на страницу корзины: {url}")
