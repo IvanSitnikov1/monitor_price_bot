@@ -289,7 +289,8 @@ class TaskQueue:
                 cart_url,
                 user_id=user_id,
                 browser_manager=self.browser_manager,
-                is_refresh=is_refresh
+                is_refresh=is_refresh,
+                maintenance_callback=self._activate_maintenance_mode
             )
 
             if cart_products:
@@ -412,7 +413,8 @@ class TaskQueue:
                 cart_url,
                 user_id=user_id,
                 browser_manager=self.browser_manager,
-                is_refresh=is_refresh
+                is_refresh=is_refresh,
+                maintenance_callback=self._activate_maintenance_mode
             )
 
             if cart_products:

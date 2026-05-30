@@ -105,6 +105,49 @@ async def _human_delay(min_s=0.5, max_s=2.0):
     await asyncio.sleep(delay)
 
 
+async def _unblock_ozon(page) -> bool:
+    """
+    Разблокирует доступ к Озону через поиск Google.
+
+    Args:
+        page: Страница Playwright
+
+    Returns:
+        True если разблокировка успешна, False при ошибке
+    """
+    logger.info("Попытка разблокировки через Google поиск...")
+
+    try:
+        # Открываем Google
+        await page.goto("https://www.google.com", timeout=30000)
+        await asyncio.sleep(2)
+
+        # Ищем поле поиска и вводим "ozon.ru"
+        search_box = page.locator('textarea[name="q"]').first
+        await search_box.fill("ozon.ru")
+        await asyncio.sleep(1)
+        await search_box.press("Enter")
+
+        # Ждём результатов поиска
+        await page.wait_for_load_state('networkidle', timeout=10000)
+        await asyncio.sleep(2)
+
+        # Кликаем по первой ссылке на ozon.ru
+        ozon_link = page.locator('a[href*="ozon.ru"]').first
+        await ozon_link.click()
+
+        # Ждём загрузки Озона
+        await page.wait_for_load_state('networkidle', timeout=10000)
+        await asyncio.sleep(3)
+
+        logger.info("Разблокировка через Google выполнена успешно")
+        return True
+
+    except Exception as e:
+        logger.error(f"Ошибка при разблокировке через Google: {e}")
+        return False
+
+
 async def _wait_for_captcha_solve(page, timeout: int = 120) -> bool:
     """
     Ожидает решения капчи пользователем.
@@ -476,7 +519,8 @@ async def scrape_ozon_cart(
     url: str,
     user_id: int,
     browser_manager=None,
-    is_refresh: bool = False
+    is_refresh: bool = False,
+    maintenance_callback=None
 ) -> list[dict[str, str]] | None:
     """
     Парсит корзину Ozon и извлекает список товаров.
@@ -486,6 +530,7 @@ async def scrape_ozon_cart(
         user_id: ID пользователя Telegram
         browser_manager: Экземпляр BrowserManager для переиспользования браузера (опционально)
         is_refresh: Если True, обновляет существующую страницу вместо открытия новой
+        maintenance_callback: Callback для активации maintenance mode при неудачной разблокировке
 
     Returns:
         Список словарей с данными товаров [{"name": "...", "price": "..."}] или None при ошибке
@@ -620,57 +665,116 @@ async def scrape_ozon_cart(
         logger.info("Капча решена, продолжаем парсинг")
         await asyncio.sleep(2)
 
-    # Парсинг товаров из корзины
+    # Парсинг товаров из корзины (с возможностью повторной попытки после разблокировки)
     logger.info("Начинаем извлечение товаров из корзины")
     products = []
+    unblock_attempted = False
 
-    try:
-        # Ищем все блоки товаров (div.checkout_s6.checkout_s8)
-        product_blocks = page.locator('div.checkout_s6.checkout_s8')
-        count = await product_blocks.count()
-        logger.info(f"Найдено блоков товаров: {count}")
+    while True:
+        try:
+            # Ищем все блоки товаров (div.checkout_s6.checkout_s8)
+            product_blocks = page.locator('div.checkout_s6.checkout_s8')
+            count = await product_blocks.count()
+            logger.info(f"Найдено блоков товаров: {count}")
 
-        for i in range(count):
-            block = product_blocks.nth(i)
+            for i in range(count):
+                block = product_blocks.nth(i)
 
-            # Извлекаем название (span.tsCompact400Large)
-            try:
-                name_element = block.locator('span.tsCompact400Large').first
-                name = await name_element.text_content(timeout=3000)
-                name = name.strip() if name else None
-            except Exception as e:
-                logger.warning(f"Не удалось извлечь название товара {i}: {e}")
-                name = None
+                # Извлекаем название (span.tsCompact400Large)
+                try:
+                    name_element = block.locator('span.tsCompact400Large').first
+                    name = await name_element.text_content(timeout=3000)
+                    name = name.strip() if name else None
+                except Exception as e:
+                    logger.warning(f"Не удалось извлечь название товара {i}: {e}")
+                    name = None
 
-            # Извлекаем цену (span.tsHeadline400Small внутри div.checkout_t)
-            try:
-                price_element = block.locator('div.checkout_t span.tsHeadline400Small').first
-                price_text = await price_element.text_content(timeout=3000)
-                if price_text:
-                    # Очищаем цену от пробелов и оставляем только цифры + ₽
-                    match = re.search(r'([\d\s\xa0]+)', price_text)
-                    if match:
-                        price_str = re.sub(r'[\s\xa0]', '', match.group(1))
-                        price = f"{price_str} ₽"
+                # Извлекаем цену (span.tsHeadline400Small внутри div.checkout_t)
+                try:
+                    price_element = block.locator('div.checkout_t span.tsHeadline400Small').first
+                    price_text = await price_element.text_content(timeout=3000)
+                    if price_text:
+                        # Очищаем цену от пробелов и оставляем только цифры + ₽
+                        match = re.search(r'([\d\s\xa0]+)', price_text)
+                        if match:
+                            price_str = re.sub(r'[\s\xa0]', '', match.group(1))
+                            price = f"{price_str} ₽"
+                        else:
+                            price = None
                     else:
                         price = None
-                else:
+                except Exception as e:
+                    logger.warning(f"Не удалось извлечь цену товара {i}: {e}")
                     price = None
-            except Exception as e:
-                logger.warning(f"Не удалось извлечь цену товара {i}: {e}")
-                price = None
 
-            if name and price:
-                products.append({"name": name, "price": price})
-                logger.info(f"Товар {i+1}: {name} - {price}")
-            else:
-                logger.warning(f"Товар {i+1}: пропущен (name={name}, price={price})")
+                if name and price:
+                    products.append({"name": name, "price": price})
+                    logger.info(f"Товар {i+1}: {name} - {price}")
+                else:
+                    logger.warning(f"Товар {i+1}: пропущен (name={name}, price={price})")
 
-    except Exception as e:
-        logger.error(f"Ошибка при парсинге товаров: {e}")
-        if not browser_manager:
-            await browser.close()
-        return None
+        except Exception as e:
+            logger.error(f"Ошибка при парсинге товаров: {e}")
+            if not browser_manager:
+                await browser.close()
+            return None
+
+        # Если товары не найдены, проверяем на блокировку
+        if not products:
+            logger.info("Проверка на страницу 'нет соединения'")
+            no_connection = page.locator('div:has-text("Похоже, нет соединения")').first
+
+            if await no_connection.count() > 0:
+                logger.warning("Обнаружена страница блокировки 'нет соединения'")
+
+                # Если уже пытались разблокировать — прерываем
+                if unblock_attempted:
+                    logger.error("Разблокировка не помогла, прерываем парсинг")
+                    if not browser_manager:
+                        await browser.close()
+                    return None
+
+                # Пытаемся разблокировать
+                unblock_attempted = True
+                unblock_success = await _unblock_ozon(page)
+
+                if not unblock_success:
+                    logger.error("Не удалось разблокировать доступ к Озону")
+
+                    # Активируем maintenance mode через callback
+                    if maintenance_callback:
+                        logger.warning("Активация maintenance mode после неудачной разблокировки")
+                        await maintenance_callback()
+
+                    if not browser_manager:
+                        await browser.close()
+                    return None
+
+                # Возвращаемся на страницу корзины
+                logger.info(f"Повторный переход на страницу корзины: {url}")
+                await page.goto(url, timeout=45000, wait_until='domcontentloaded')
+                await _human_delay()
+                await _human_like_behavior(page)
+
+                try:
+                    await page.wait_for_load_state('networkidle', timeout=10000)
+                except PlaywrightTimeoutError:
+                    logger.warning("Networkidle timeout после разблокировки")
+
+                # Сохраняем скриншот после разблокировки
+                from datetime import datetime
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                screenshot_path_unblock = f'debug_data/cart_user{user_id}_after_unblock_{timestamp}.png'
+                await page.screenshot(path=screenshot_path_unblock)
+                logger.info(f"Скриншот после разблокировки: {screenshot_path_unblock}")
+
+                # Повторяем парсинг (continue вернёт в начало while True)
+                logger.info("Повторная попытка парсинга после разблокировки")
+                products = []  # Сбрасываем список
+                continue
+
+        # Если товары найдены или блокировки нет — выходим из цикла
+        break
 
     # Закрываем браузер только если не используем BrowserManager
     if not browser_manager:
