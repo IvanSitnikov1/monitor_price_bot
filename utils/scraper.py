@@ -105,49 +105,69 @@ async def _human_delay(min_s=0.5, max_s=2.0):
     await asyncio.sleep(delay)
 
 
-async def _unblock_ozon(page) -> bool:
+async def _unblock_ozon(page) -> tuple[bool, any]:
     """
-    Разблокирует доступ к Озону через поиск Яндекс.
+    Разблокирует доступ к Озону через ожидание и проверку главной страницы.
+
+    Логика:
+    1. Ждёт 5 минут
+    2. Открывает новую вкладку с главной страницей Ozon
+    3. Закрывает старую вкладку
+    4. Проверяет наличие блокировки
 
     Args:
-        page: Страница Playwright
+        page: Страница Playwright (старая вкладка с блокировкой)
 
     Returns:
-        True если разблокировка успешна, False при ошибке
+        Кортеж (успех, новая_страница):
+        - (True, new_page) если разблокировка успешна
+        - (False, None) если блокировка осталась
     """
-    logger.info("Попытка разблокировки через Яндекс поиск...")
+    logger.info("Попытка разблокировки: ожидание 5 минут перед проверкой...")
 
     try:
-        # Открываем Яндекс
-        await page.goto("https://ya.ru/", timeout=30000)
-        await asyncio.sleep(2)
+        # Ждём 5 минут
+        await asyncio.sleep(300)  # 300 секунд = 5 минут
+        logger.info("Ожидание завершено, открываем новую вкладку с главной страницей Ozon")
 
-        # Ищем поле поиска и вводим "ozon"
-        search_box = page.locator('textarea#text').first
-        await search_box.click()
-        await asyncio.sleep(0.5)
-        await search_box.fill("ozon")
-        await asyncio.sleep(1)
-        await search_box.press("Enter")
+        # Получаем контекст браузера
+        context = page.context
 
-        # Ждём результатов поиска
-        await page.wait_for_load_state('networkidle', timeout=10000)
-        await asyncio.sleep(2)
+        # Открываем новую вкладку
+        new_page = await context.new_page()
+        logger.info("Новая вкладка создана")
 
-        # Кликаем по первой ссылке на ozon.ru
-        ozon_link = page.locator('a[href*="ozon.ru"]').first
-        await ozon_link.click()
+        # Применяем stealth-патчи к новой вкладке
+        stealth = Stealth(
+            navigator_languages_override=('ru-RU', 'ru', 'en-US', 'en'),
+            navigator_platform_override='Linux x86_64',
+            navigator_user_agent_override='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+        )
+        await stealth.apply_stealth_async(new_page)
+        await new_page.set_viewport_size({"width": 1920, "height": 1080})
 
-        # Ждём загрузки Озона
-        await page.wait_for_load_state('networkidle', timeout=10000)
+        # Переходим на главную страницу Ozon
+        await new_page.goto("https://www.ozon.ru/", timeout=30000)
         await asyncio.sleep(3)
 
-        logger.info("Разблокировка через Яндекс выполнена успешно")
-        return True
+        # Закрываем старую вкладку
+        await page.close()
+        logger.info("Старая вкладка закрыта")
+
+        # Проверяем наличие блокировки на новой вкладке
+        logger.info("Проверка на страницу блокировки")
+        no_connection = new_page.locator('div:has-text("Похоже, нет соединения")').first
+
+        if await no_connection.count() > 0:
+            logger.warning("Блокировка всё ещё присутствует после ожидания")
+            return False, None
+        else:
+            logger.info("Блокировка снята, доступ к Ozon восстановлен")
+            return True, new_page
 
     except Exception as e:
-        logger.error(f"Ошибка при разблокировке через Яндекс: {e}")
-        return False
+        logger.error(f"Ошибка при попытке разблокировки: {e}")
+        return False, None
 
 
 async def _wait_for_captcha_solve(page, timeout: int = 120) -> bool:
@@ -740,7 +760,7 @@ async def scrape_ozon_cart(
 
                 # Пытаемся разблокировать
                 unblock_attempted = True
-                unblock_success = await _unblock_ozon(page)
+                unblock_success, new_page = await _unblock_ozon(page)
 
                 if not unblock_success:
                     logger.error("Не удалось разблокировать доступ к Озону")
@@ -755,6 +775,10 @@ async def scrape_ozon_cart(
 
                     # Возвращаем специальный маркер для прерывания повторных попыток
                     return "maintenance_required"
+
+                # Используем новую страницу после разблокировки
+                page = new_page
+                logger.info("Переключились на новую вкладку после разблокировки")
 
                 # Возвращаемся на страницу корзины
                 logger.info(f"Повторный переход на страницу корзины: {url}")
