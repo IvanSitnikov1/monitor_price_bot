@@ -61,7 +61,8 @@ async def filter_products(callback: types.CallbackQuery):
     # Определяем маркетплейс для фильтрации
     marketplace = None if filter_value == "all" else filter_value
 
-    products = await get_all_products(user.id, marketplace=marketplace)
+    # Получаем все товары (включая удалённые из корзины)
+    products = await get_all_products(user.id, marketplace=marketplace, in_cart_only=False)
     logger.info(f"Найдено товаров после фильтрации: {len(products)}")
 
     if not products:
@@ -107,8 +108,8 @@ async def delete_product_handler(callback: types.CallbackQuery):
     if success:
         logger.info(f"Товар ID {product_id} успешно удален для пользователя {user.id}")
 
-        # Загружаем обновленный список товаров
-        products = await get_all_products(user.id)
+        # Загружаем обновленный список товаров (включая удалённые из корзины)
+        products = await get_all_products(user.id, in_cart_only=False)
 
         if not products:
             # Если список пуст, показываем соответствующее сообщение
