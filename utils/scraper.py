@@ -111,9 +111,12 @@ async def _unblock_ozon(page) -> tuple[bool, any]:
 
     Логика:
     1. Ждёт 5 минут
-    2. Открывает новую вкладку с главной страницей Ozon
-    3. Закрывает старую вкладку
-    4. Проверяет наличие блокировки
+    2. Открывает новую вкладку
+    3. Применяет полный набор stealth-патчей
+    4. Эмулирует ввод URL в адресную строку через CDP
+    5. Ждёт полной загрузки (networkidle)
+    6. Проверяет наличие блокировки
+    7. Закрывает старую вкладку только при успехе
 
     Args:
         page: Страница Playwright (старая вкладка с блокировкой)
@@ -137,7 +140,7 @@ async def _unblock_ozon(page) -> tuple[bool, any]:
         new_page = await context.new_page()
         logger.info("Новая вкладка создана")
 
-        # Применяем stealth-патчи к новой вкладке
+        # Применяем полный набор stealth-патчей (как в основной функции)
         stealth = Stealth(
             navigator_languages_override=('ru-RU', 'ru', 'en-US', 'en'),
             navigator_platform_override='Linux x86_64',
@@ -145,14 +148,39 @@ async def _unblock_ozon(page) -> tuple[bool, any]:
         )
         await stealth.apply_stealth_async(new_page)
         await new_page.set_viewport_size({"width": 1920, "height": 1080})
+        logger.info("Stealth-патчи применены к новой вкладке")
 
-        # Переходим на главную страницу Ozon
-        await new_page.goto("https://www.ozon.ru/", timeout=30000)
-        await asyncio.sleep(3)
+        # Задержка перед навигацией (5-10 секунд)
+        delay = random.uniform(5, 10)
+        logger.info(f"Задержка перед навигацией: {delay:.2f}s")
+        await asyncio.sleep(delay)
 
-        # Закрываем старую вкладку
-        await page.close()
-        logger.info("Старая вкладка закрыта")
+        # Эмулируем ввод URL в адресную строку через CDP
+        # Это более естественный способ навигации, чем page.goto()
+        logger.info("Эмуляция ввода URL через CDP (как ручной ввод в адресную строку)")
+        cdp = await new_page.context.new_cdp_session(new_page)
+
+        # Навигация через CDP Page.navigate (ближе к ручному вводу)
+        await cdp.send('Page.navigate', {'url': 'https://www.ozon.ru/'})
+        logger.info("CDP навигация отправлена")
+
+        # Ждём загрузки страницы (domcontentloaded)
+        await new_page.wait_for_load_state('domcontentloaded', timeout=30000)
+        logger.info("Страница загружена (domcontentloaded)")
+
+        # Дополнительная задержка
+        await asyncio.sleep(random.uniform(3, 5))
+
+        # Ждём networkidle для полной загрузки
+        try:
+            logger.info("Ожидание networkidle")
+            await new_page.wait_for_load_state('networkidle', timeout=15000)
+            logger.info("Networkidle достигнут")
+        except PlaywrightTimeoutError:
+            logger.warning("Networkidle timeout - продолжаем проверку")
+
+        # Ещё одна задержка перед проверкой
+        await asyncio.sleep(random.uniform(2, 4))
 
         # Проверяем наличие блокировки на новой вкладке
         logger.info("Проверка на страницу блокировки")
@@ -160,9 +188,14 @@ async def _unblock_ozon(page) -> tuple[bool, any]:
 
         if await no_connection.count() > 0:
             logger.warning("Блокировка всё ещё присутствует после ожидания")
+            # Закрываем новую вкладку при неудаче
+            await new_page.close()
             return False, None
         else:
             logger.info("Блокировка снята, доступ к Ozon восстановлен")
+            # Закрываем старую вкладку только после успешной проверки
+            await page.close()
+            logger.info("Старая вкладка закрыта")
             return True, new_page
 
     except Exception as e:
