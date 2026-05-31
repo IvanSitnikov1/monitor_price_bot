@@ -280,10 +280,17 @@ class TaskQueue:
         for attempt in range(1, 4):
             logger.info(f"Попытка парсинга корзины {attempt}/3: {cart_url}")
 
-            # Определяем, нужно ли обновлять страницу
+            # Определяем, нужно ли обновлять страницу или открывать новую
             # Проверяем, есть ли уже активный браузер для этого пользователя
-            is_refresh = user_id in self.browser_manager._instances and \
-                         self.browser_manager._instances[user_id]._cart_page is not None
+            # И совпадает ли URL корзины с текущим открытым
+            is_refresh = False
+            if user_id in self.browser_manager._instances:
+                instance = self.browser_manager._instances[user_id]
+                if instance._cart_page is not None and instance._current_cart_url == cart_url:
+                    is_refresh = True
+                    logger.info(f"URL корзины совпадает, используем refresh")
+                else:
+                    logger.info(f"URL корзины изменился или страница не открыта, открываем новую")
 
             cart_products = await scrape_ozon_cart(
                 cart_url,
@@ -441,10 +448,17 @@ class TaskQueue:
         for attempt in range(1, 4):
             logger.info(f"Попытка парсинга корзины {attempt}/3: {cart_url}")
 
-            # Определяем, нужно ли обновлять страницу
+            # Определяем, нужно ли обновлять страницу или открывать новую
             # Проверяем, есть ли уже активный браузер для этого пользователя
-            is_refresh = user_id in self.browser_manager._instances and \
-                         self.browser_manager._instances[user_id]._cart_page is not None
+            # И совпадает ли URL корзины с текущим открытым
+            is_refresh = False
+            if user_id in self.browser_manager._instances:
+                instance = self.browser_manager._instances[user_id]
+                if instance._cart_page is not None and instance._current_cart_url == cart_url:
+                    is_refresh = True
+                    logger.info(f"URL корзины совпадает, используем refresh")
+                else:
+                    logger.info(f"URL корзины изменился или страница не открыта, открываем новую")
 
             cart_products = await scrape_ozon_cart(
                 cart_url,
