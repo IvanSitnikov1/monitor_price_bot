@@ -31,10 +31,19 @@ async def setup_database():
                 url TEXT NOT NULL,
                 name TEXT NOT NULL,
                 marketplace TEXT NOT NULL DEFAULT 'ozon',
+                in_cart INTEGER NOT NULL DEFAULT 1,
                 date_added TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
             )
         """)
+
+        # Миграция: добавляем поле in_cart для существующих таблиц
+        try:
+            await db.execute("ALTER TABLE products ADD COLUMN in_cart INTEGER NOT NULL DEFAULT 1")
+            await db.commit()
+        except Exception:
+            # Поле уже существует, игнорируем ошибку
+            pass
 
         await db.execute("""
             CREATE TABLE IF NOT EXISTS price_history (
@@ -133,16 +142,17 @@ async def add_product(
         return product_id
 
 
-async def get_all_products(user_id: int, marketplace: str | None = None) -> list[dict]:
+async def get_all_products(user_id: int, marketplace: str | None = None, in_cart_only: bool = True) -> list[dict]:
     """
     Получает список всех товаров пользователя с их текущими ценами.
 
     Args:
         user_id: ID пользователя Telegram
         marketplace: Фильтр по маркетплейсу (опционально)
+        in_cart_only: Если True, возвращает только товары в корзине (по умолчанию)
 
     Returns:
-        Список словарей с полями: id, url, name, marketplace, current_price
+        Список словарей с полями: id, url, name, marketplace, current_price, in_cart
     """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -153,6 +163,7 @@ async def get_all_products(user_id: int, marketplace: str | None = None) -> list
                 p.url,
                 p.name,
                 p.marketplace,
+                p.in_cart,
                 ph.price as current_price
             FROM products p
             LEFT JOIN price_history ph ON p.id = ph.product_id
@@ -165,6 +176,9 @@ async def get_all_products(user_id: int, marketplace: str | None = None) -> list
         """
 
         params = [user_id]
+
+        if in_cart_only:
+            query += " AND p.in_cart = 1"
 
         if marketplace:
             query += " AND p.marketplace = ?"
@@ -282,6 +296,75 @@ async def update_product_price(product_id: int, price: int):
         )
 
         await db.commit()
+
+
+async def mark_product_not_in_cart(product_id: int) -> bool:
+    """
+    Помечает товар как удалённый из корзины (но сохраняет в БД с историей).
+
+    Args:
+        product_id: ID товара
+
+    Returns:
+        True если товар был обновлён, False если товар не найден
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE products SET in_cart = 0 WHERE id = ?",
+            (product_id,)
+        )
+
+        if cursor.rowcount == 0:
+            return False
+
+        await db.commit()
+        return True
+
+
+async def mark_product_in_cart(product_id: int) -> bool:
+    """
+    Помечает товар как находящийся в корзине.
+
+    Args:
+        product_id: ID товара
+
+    Returns:
+        True если товар был обновлён, False если товар не найден
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE products SET in_cart = 1 WHERE id = ?",
+            (product_id,)
+        )
+
+        if cursor.rowcount == 0:
+            return False
+
+        await db.commit()
+        return True
+
+
+async def get_product_by_name(user_id: int, name: str) -> dict | None:
+    """
+    Получает товар пользователя по названию.
+
+    Args:
+        user_id: ID пользователя Telegram
+        name: Название товара
+
+    Returns:
+        Словарь с полями: id, url, name, marketplace, in_cart или None
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute(
+            "SELECT id, url, name, marketplace, in_cart FROM products WHERE user_id = ? AND name = ?",
+            (user_id, name)
+        )
+
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 
 async def delete_product(product_id: int, user_id: int) -> bool:

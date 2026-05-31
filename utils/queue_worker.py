@@ -326,74 +326,100 @@ class TaskQueue:
             await self._activate_maintenance_mode()
             return
 
-        # Получаем текущие товары пользователя
-        current_products = await get_all_products(user_id)
-        current_names = {p["name"] for p in current_products}
-        cart_names = {p["name"] for p in cart_products}
+        # Получаем текущие товары пользователя (включая удалённые из корзины)
+        from core.database import get_product_by_name, mark_product_not_in_cart, mark_product_in_cart
+        current_products = await get_all_products(user_id, in_cart_only=False)
 
-        logger.info(f"Текущие товары пользователя: {len(current_names)}")
-        logger.info(f"Товары в корзине: {len(cart_names)}")
+        # Создаём словари для быстрого поиска
+        current_products_dict = {p["name"]: p for p in current_products}
+        cart_products_dict = {p["name"]: p for p in cart_products}
 
-        # Определяем, что нужно добавить и удалить
-        to_add = cart_names - current_names
-        to_remove = current_names - cart_names
-
-        logger.info(f"Товаров к добавлению: {len(to_add)}")
-        logger.info(f"Товаров к удалению: {len(to_remove)}")
+        logger.info(f"Текущие товары пользователя (всего): {len(current_products)}")
+        logger.info(f"Товары в корзине: {len(cart_products)}")
 
         # Импортируем Marketplace для создания enum
         from core.models import Marketplace
         marketplace_enum = Marketplace(marketplace)
 
-        # Удаляем товары, которых нет в новой корзине
-        removed_count = 0
-        for product in current_products:
-            if product["name"] in to_remove:
-                await delete_product(product["id"])
-                removed_count += 1
-                logger.info(f"Удалён товар: {product['name']}")
-
-        # Добавляем новые товары
+        # Счётчики изменений
         added_count = 0
+        updated_count = 0
+        removed_count = 0
+        restored_count = 0
+
+        # Обрабатываем товары из корзины
         for cart_product in cart_products:
-            if cart_product["name"] in to_add:
-                # Извлекаем число из строки цены
-                price_match = re.search(r'(\d+)', cart_product["price"])
-                if not price_match:
-                    logger.warning(f"Не удалось распарсить цену: {cart_product['price']}")
-                    continue
+            product_name = cart_product["name"]
 
-                price_int = int(price_match.group(1))
+            # Извлекаем число из строки цены
+            price_match = re.search(r'(\d+)', cart_product["price"])
+            if not price_match:
+                logger.warning(f"Не удалось распарсить цену: {cart_product['price']}")
+                continue
 
-                # Добавляем товар в БД (URL = название, т.к. у нас нет прямых ссылок)
+            new_price = int(price_match.group(1))
+
+            # Если товар уже есть в БД
+            if product_name in current_products_dict:
+                existing_product = current_products_dict[product_name]
+                product_id = existing_product["id"]
+
+                # Если товар был удалён из корзины ранее — восстанавливаем
+                if existing_product["in_cart"] == 0:
+                    await mark_product_in_cart(product_id)
+                    restored_count += 1
+                    logger.info(f"Восстановлен товар в корзине: {product_name}")
+
+                # Обновляем цену
+                await update_product_price(product_id, new_price)
+                updated_count += 1
+                logger.info(f"Цена обновлена для {product_name}: {new_price} ₽")
+
+            # Если товар новый — добавляем
+            else:
                 product_id = await add_product(
-                    url=f"cart_item_{cart_product['name']}",  # Временный URL
-                    name=cart_product["name"],
-                    price=price_int,
+                    url=f"cart_item_{product_name}",  # Временный URL
+                    name=product_name,
+                    price=new_price,
                     user_id=user_id,
                     marketplace=marketplace_enum
                 )
 
                 if product_id:
                     added_count += 1
-                    logger.info(f"Добавлен товар: {cart_product['name']} - {cart_product['price']}")
+                    logger.info(f"Добавлен товар: {product_name} - {new_price} ₽")
+
+        # Помечаем товары, которых нет в новой корзине, как удалённые (но не удаляем из БД)
+        for product in current_products:
+            if product["in_cart"] == 1 and product["name"] not in cart_products_dict:
+                await mark_product_not_in_cart(product["id"])
+                removed_count += 1
+                logger.info(f"Товар помечен как удалённый из корзины: {product['name']}")
 
         # Отправляем итоговое уведомление
         summary = f"✅ Корзина обработана!\n\n"
         summary += f"📦 Всего товаров в корзине: {len(cart_products)}\n"
-        summary += f"➕ Добавлено: {added_count}\n"
-        summary += f"➖ Удалено: {removed_count}\n"
+        summary += f"➕ Добавлено новых: {added_count}\n"
+        summary += f"🔄 Обновлено цен: {updated_count}\n"
+        summary += f"🔙 Восстановлено: {restored_count}\n"
+        summary += f"➖ Удалено из корзины: {removed_count}\n"
 
         if added_count > 0:
             summary += f"\n🆕 Новые товары:\n"
             for cart_product in cart_products:
-                if cart_product["name"] in to_add:
+                if cart_product["name"] not in current_products_dict:
                     summary += f"• {cart_product['name']} - {cart_product['price']}\n"
 
-        if removed_count > 0:
-            summary += f"\n🗑 Удалённые товары:\n"
+        if restored_count > 0:
+            summary += f"\n🔙 Восстановленные товары:\n"
             for product in current_products:
-                if product["name"] in to_remove:
+                if product["in_cart"] == 0 and product["name"] in cart_products_dict:
+                    summary += f"• {product['name']}\n"
+
+        if removed_count > 0:
+            summary += f"\n➖ Удалённые из корзины (сохранены с историей):\n"
+            for product in current_products:
+                if product["in_cart"] == 1 and product["name"] not in cart_products_dict:
                     summary += f"• {product['name']}\n"
 
         await self.bot.send_message(user_id, summary)
@@ -447,22 +473,34 @@ class TaskQueue:
             await self._activate_maintenance_mode()
             return
 
-        # Получаем текущие товары пользователя из БД
-        current_products = await get_all_products(user_id)
+        # Получаем текущие товары пользователя из БД (включая удалённые из корзины)
+        from core.database import mark_product_not_in_cart, mark_product_in_cart
+        current_products = await get_all_products(user_id, in_cart_only=False)
 
-        # Создаём словарь: название товара -> данные из корзины
+        # Создаём словари для быстрого поиска
+        current_products_dict = {p["name"]: p for p in current_products}
         cart_products_dict = {p["name"]: p for p in cart_products}
 
-        # Обновляем цены для существующих товаров
+        # Счётчики изменений
         updated_count = 0
+        restored_count = 0
+        removed_count = 0
         price_drops = []  # Список товаров со снижением цены
 
-        for product in current_products:
-            product_name = product["name"]
+        # Обрабатываем товары из корзины
+        for cart_product in cart_products:
+            product_name = cart_product["name"]
 
-            # Если товар есть в корзине
-            if product_name in cart_products_dict:
-                cart_product = cart_products_dict[product_name]
+            # Если товар есть в БД
+            if product_name in current_products_dict:
+                existing_product = current_products_dict[product_name]
+                product_id = existing_product["id"]
+
+                # Если товар был удалён из корзины ранее — восстанавливаем
+                if existing_product["in_cart"] == 0:
+                    await mark_product_in_cart(product_id)
+                    restored_count += 1
+                    logger.info(f"Восстановлен товар в корзине: {product_name}")
 
                 # Извлекаем число из строки цены
                 price_match = re.search(r'(\d+)', cart_product["price"])
@@ -471,7 +509,6 @@ class TaskQueue:
                     continue
 
                 new_price = int(price_match.group(1))
-                product_id = product["id"]
 
                 # Получаем минимальную цену до обновления
                 min_price_before = await get_min_price(product_id)
@@ -494,7 +531,14 @@ class TaskQueue:
                         f"Было: {min_price_before} ₽, стало: {new_price} ₽"
                     )
 
-        logger.info(f"Обновлено цен: {updated_count}")
+        # Помечаем товары, которых нет в новой корзине, как удалённые (но не удаляем из БД)
+        for product in current_products:
+            if product["in_cart"] == 1 and product["name"] not in cart_products_dict:
+                await mark_product_not_in_cart(product["id"])
+                removed_count += 1
+                logger.info(f"Товар помечен как удалённый из корзины: {product['name']}")
+
+        logger.info(f"Обновлено цен: {updated_count}, восстановлено: {restored_count}, удалено: {removed_count}")
 
         # Отправляем уведомления о снижении цен
         if price_drops:
