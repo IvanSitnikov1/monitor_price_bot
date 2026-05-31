@@ -122,6 +122,7 @@ class BrowserInstance:
     """
     Возвращает страницу корзины. При первом вызове открывает страницу,
     при последующих — переиспользует существующую.
+    Если URL изменился — переходит на новый URL в той же вкладке.
 
     Args:
       cart_url: URL корзины
@@ -136,11 +137,13 @@ class BrowserInstance:
       logger.info(f"[User {self.user_id}] Переиспользуем существующую страницу корзины")
       return self._cart_page
 
-    # Закрываем старую страницу, если она была для другой корзины
-    if self._cart_page:
-      logger.info(f"[User {self.user_id}] Закрываем старую страницу корзины")
-      await self._cart_page.close()
-      self._cart_page = None
+    # Если страница открыта, но URL другой — переходим на новый URL в той же вкладке
+    if self._cart_page and self._current_cart_url != cart_url:
+      logger.info(f"[User {self.user_id}] URL корзины изменился, переходим на новый URL: {cart_url}")
+      await self._cart_page.goto(cart_url, timeout=45000, wait_until='domcontentloaded')
+      logger.info(f"[User {self.user_id}] Переход на новую корзину завершён")
+      self._current_cart_url = cart_url
+      return self._cart_page
 
     # Закрываем все лишние вкладки, оставляем только одну
     if context.pages:

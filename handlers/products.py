@@ -39,7 +39,8 @@ async def list_positions(message: types.Message, state: FSMContext):
     # Очищаем состояние FSM, если пользователь был в процессе добавления товара
     await state.clear()
 
-    products = await get_all_products(user.id)
+    # Получаем ВСЕ товары пользователя (включая удалённые из корзины)
+    products = await get_all_products(user.id, in_cart_only=False)
     logger.info(f"Найдено товаров в БД для пользователя {user.id}: {len(products)}")
 
     if not products:
