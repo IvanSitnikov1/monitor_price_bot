@@ -136,6 +136,20 @@ async def _unblock_ozon(page) -> tuple[bool, any]:
         # Получаем контекст браузера
         context = page.context
 
+        # Очищаем cookies для ozon.ru перед открытием новой вкладки
+        logger.info("Очистка cookies для ozon.ru")
+        try:
+            cookies = await context.cookies()
+            ozon_cookies = [c for c in cookies if 'ozon.ru' in c.get('domain', '')]
+            if ozon_cookies:
+                logger.info(f"Найдено {len(ozon_cookies)} cookies для ozon.ru, удаляем...")
+                await context.clear_cookies()
+                logger.info("Cookies очищены")
+            else:
+                logger.info("Cookies для ozon.ru не найдены")
+        except Exception as e:
+            logger.warning(f"Не удалось очистить cookies: {e}")
+
         # Открываем новую вкладку
         new_page = await context.new_page()
         logger.info("Новая вкладка создана")
