@@ -1,10 +1,7 @@
-import logging
 from datetime import datetime
 
 from core.database import get_all_user_carts
-
-
-logger = logging.getLogger(__name__)
+from loggers import logger
 
 
 async def update_all_prices(task_queue):

@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 import random
 import re
 from pathlib import Path
@@ -15,13 +14,11 @@ from core.database import (
     get_min_price,
     get_product_owner,
     get_all_products,
-    delete_product,
     save_user_cart,
 )
 from utils.maintenance import MaintenanceMode
-
-
-logger = logging.getLogger(__name__)
+from loggers import logger
+from config import config
 
 QUEUE_FILE = Path("queue_state.json")
 
@@ -74,8 +71,8 @@ class TaskQueue:
         self,
         task_type: Literal["add_product", "add_cart", "update_price", "update_cart"],
         url: str,
+        user_id: int,
         priority: int = 2,
-        user_id: int | None = None,
         product_id: int | None = None,
         product_name: str | None = None,
         marketplace: str | None = None
@@ -649,7 +646,7 @@ class TaskQueue:
                 except asyncio.QueueEmpty:
                     break
 
-            with open(QUEUE_FILE, "w", encoding="utf-8") as f:
+            with open(config.QUEUE_FILE, "w", encoding="utf-8") as f:
                 json.dump(tasks, f, ensure_ascii=False, indent=2)
 
             logger.info(f"Очередь сохранена на диск: {len(tasks)} задач")
@@ -658,12 +655,12 @@ class TaskQueue:
 
     async def _load_queue(self):
         """Загружает очередь с диска"""
-        if not QUEUE_FILE.exists():
+        if not config.QUEUE_FILE.exists():
             logger.info("Файл очереди не найден, начинаем с пустой очереди")
             return
 
         try:
-            with open(QUEUE_FILE, "r", encoding="utf-8") as f:
+            with open(config.QUEUE_FILE, "r", encoding="utf-8") as f:
                 tasks = json.load(f)
 
             for item in tasks:
@@ -678,6 +675,6 @@ class TaskQueue:
             logger.info(f"Очередь загружена с диска: {len(tasks)} задач")
 
             # Удаляем файл после загрузки
-            QUEUE_FILE.unlink()
+            config.QUEUE_FILE.unlink()
         except Exception as e:
             logger.error(f"Ошибка при загрузке очереди: {e}", exc_info=True)

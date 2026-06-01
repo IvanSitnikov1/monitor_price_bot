@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import random
 from pathlib import Path
 
@@ -16,11 +15,8 @@ from handlers import (
 )
 from core.database import setup_database
 from utils.price_updater import update_all_prices
-from utils.logger import setup_logging
+from loggers import logger
 from utils.queue_worker import TaskQueue
-
-
-logger = logging.getLogger(__name__)
 
 
 async def schedule_price_update_with_delay(task_queue):
@@ -45,10 +41,6 @@ async def schedule_price_update_with_delay(task_queue):
 
 
 async def start_bot():
-    # Настраиваем логирование
-    log_file = Path("logs/bot.log")
-    setup_logging(level="INFO", log_file=log_file)
-
     logger.info("=" * 60)
     logger.info("Запуск бота мониторинга цен Ozon")
     logger.info("=" * 60)
@@ -87,7 +79,7 @@ async def start_bot():
     logger.info("Удаление вебхуков...")
     await bot.delete_webhook(drop_pending_updates=True)
 
-    # Добавляем роутеры (порядок важен: common_router с echo должен быть последним)
+    # Добавляем роутеры
     logger.info("Регистрация обработчиков...")
     dp.include_router(admin_router)
     dp.include_router(products_router)
@@ -96,7 +88,6 @@ async def start_bot():
     dp.include_router(common_router)  # Последний, т.к. содержит echo-обработчик
 
     # Запускаем опрос
-    logger.info("Запуск polling...")
     logger.info("Бот готов к работе!")
 
     try:

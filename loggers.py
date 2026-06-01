@@ -89,3 +89,8 @@ def setup_logging(level: str = "INFO", log_file: Path | None = None) -> None:
     root_logger.info(f"Уровень логирования: {level.upper()}")
     if log_file:
         root_logger.info(f"Логи сохраняются в файл: {log_file}")
+
+
+log_file = Path("logs/bot.log")
+setup_logging(level="DEBUG", log_file=log_file)
+logger = logging.getLogger(__name__)
