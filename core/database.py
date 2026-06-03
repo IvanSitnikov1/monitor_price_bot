@@ -19,7 +19,7 @@ async def setup_database():
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
                 first_name TEXT,
-                cart_url TEXT,
+                ozon_cart_url TEXT,
                 date_registered TEXT NOT NULL
             )
         """)
@@ -521,7 +521,7 @@ async def register_user(user_id: int, username: str | None, first_name: str | No
 
 async def save_user_cart(user_id: int, cart_url: str):
     """
-    Сохраняет или обновляет ссылку на корзину пользователя.
+    Сохраняет или обновляет ссылку на корзину Ozon пользователя.
 
     Args:
         user_id: ID пользователя Telegram
@@ -529,7 +529,7 @@ async def save_user_cart(user_id: int, cart_url: str):
     """
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
-            UPDATE users SET cart_url = ? WHERE user_id = ?
+            UPDATE users SET ozon_cart_url = ? WHERE user_id = ?
         """, (cart_url, user_id))
 
         await db.commit()
@@ -537,17 +537,17 @@ async def save_user_cart(user_id: int, cart_url: str):
 
 async def get_user_cart(user_id: int) -> str | None:
     """
-    Получает ссылку на корзину пользователя.
+    Получает ссылку на корзину Ozon пользователя.
 
     Args:
         user_id: ID пользователя Telegram
 
     Returns:
-        URL корзины или None если корзина не сохранена
+        URL корзины Ozon или None если корзина не сохранена
     """
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "SELECT cart_url FROM users WHERE user_id = ?",
+            "SELECT ozon_cart_url FROM users WHERE user_id = ?",
             (user_id,)
         )
 
@@ -557,7 +557,7 @@ async def get_user_cart(user_id: int) -> str | None:
 
 async def get_all_user_carts() -> list[dict]:
     """
-    Получает список всех пользователей с их корзинами.
+    Получает список всех пользователей с их корзинами Ozon.
 
     Returns:
         Список словарей с полями: user_id, cart_url
@@ -566,7 +566,7 @@ async def get_all_user_carts() -> list[dict]:
         db.row_factory = aiosqlite.Row
 
         cursor = await db.execute(
-            "SELECT user_id, cart_url FROM users WHERE cart_url IS NOT NULL ORDER BY user_id"
+            "SELECT user_id, ozon_cart_url as cart_url FROM users WHERE ozon_cart_url IS NOT NULL ORDER BY user_id"
         )
 
         rows = await cursor.fetchall()
