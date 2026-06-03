@@ -1,4 +1,3 @@
-import logging
 import re
 
 from aiogram import F, types, Router
@@ -13,9 +12,9 @@ from core.database import (
     get_auth_request,
     update_auth_request_status
 )
+from loggers import logger
 
 
-logger = logging.getLogger(__name__)
 auth_ozon_router = Router()
 
 

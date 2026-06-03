@@ -1,20 +1,13 @@
-import logging
-
 from aiogram import F, types, Router
 from aiogram.fsm.context import FSMContext
 
 from keyboards.inline import get_products_keyboard
 from utils.states import AddCart
-from core.database import (
-    add_product,
-    get_all_products,
-    check_user_has_product,
-    delete_product,
-)
+from core.database import get_all_products
 from core.models import Marketplace
+from loggers import logger
 
 
-logger = logging.getLogger(__name__)
 products_router = Router()
 
 
@@ -81,7 +74,7 @@ async def process_cart_link(message: types.Message, state: FSMContext):
 
     await message.answer(
         "⏳ Корзина добавлена в очередь обработки.\n"
-        "Это может занять до 5 минут, ожидайте уведомления."
+        "Это может занять некоторое время, ожидайте уведомления."
     )
 
     logger.info(f"Задача добавления корзины добавлена в очередь для пользователя {user.id}")

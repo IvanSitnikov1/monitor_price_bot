@@ -92,5 +92,5 @@ def setup_logging(level: str = "INFO", log_file: Path | None = None) -> None:
 
 
 log_file = Path("logs/bot.log")
-setup_logging(level="DEBUG", log_file=log_file)
+setup_logging(level="INFO", log_file=log_file)
 logger = logging.getLogger(__name__)

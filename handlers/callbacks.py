@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime
 
 from aiogram import F, types, Router
@@ -10,9 +9,9 @@ from core.database import (
     delete_product,
     get_price_history,
 )
+from loggers import logger
 
 
-logger = logging.getLogger(__name__)
 callbacks_router = Router()
 
 
@@ -75,23 +74,6 @@ async def filter_products(callback: types.CallbackQuery):
     await callback.message.edit_text(
         "📋 Список отслеживаемых товаров:",
         reply_markup=get_products_keyboard(products, marketplace_filter=marketplace)
-    )
-    await callback.answer()
-
-
-# Обработчик кнопки "Назад"
-@callbacks_router.callback_query(F.data == "back_to_list")
-async def back_to_list(callback: types.CallbackQuery):
-    products = await get_all_products()
-
-    if not products:
-        await callback.message.edit_text("Список позиций пуст.")
-        await callback.answer()
-        return
-
-    await callback.message.edit_text(
-        "📋 Список отслеживаемых товаров:",
-        reply_markup=get_products_keyboard(products)
     )
     await callback.answer()
 

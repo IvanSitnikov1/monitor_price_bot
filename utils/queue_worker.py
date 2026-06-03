@@ -6,21 +6,20 @@ from pathlib import Path
 from datetime import datetime
 from typing import Literal
 
-from utils.scraper import scrape_ozon_product, scrape_ozon_cart
+from utils.scraper import scrape_ozon_cart
+from core.database import mark_product_not_in_cart, mark_product_in_cart
 from utils.browser_manager import BrowserManager
+from core.models import Marketplace
 from core.database import (
     add_product,
     update_product_price,
     get_min_price,
-    get_product_owner,
     get_all_products,
     save_user_cart,
 )
-from utils.maintenance import MaintenanceMode
+from utils.maintenance import maintenance_mode
 from loggers import logger
 from config import config
-
-QUEUE_FILE = Path("queue_state.json")
 
 
 class TaskQueue:
@@ -39,6 +38,7 @@ class TaskQueue:
         self.worker_task = None
         self.counter = 0  # Счетчик для разрешения конфликтов приоритетов
         self.browser_manager = BrowserManager()  # Менеджер браузеров для переиспользования
+        self.queue_file = Path(config.QUEUE_FILE)
 
     async def start(self):
         """Запускает воркер очереди"""
@@ -69,13 +69,11 @@ class TaskQueue:
 
     async def add_task(
         self,
-        task_type: Literal["add_product", "add_cart", "update_price", "update_cart"],
+        task_type: Literal["add_cart", "update_cart"],
         url: str,
         user_id: int,
         priority: int = 2,
-        product_id: int | None = None,
-        product_name: str | None = None,
-        marketplace: str | None = None
+        marketplace: str | None = None,
     ):
         """
         Добавляет задачу в очередь.
@@ -85,16 +83,12 @@ class TaskQueue:
             url: URL товара или корзины
             priority: Приоритет (1 - высокий, 2 - низкий)
             user_id: ID пользователя (для add_product/add_cart/update_cart)
-            product_id: ID товара в БД (для update_price)
-            product_name: Название товара (для логов)
             marketplace: Маркетплейс товара (для add_product/add_cart)
         """
         task = {
             "type": task_type,
             "url": url,
             "user_id": user_id,
-            "product_id": product_id,
-            "product_name": product_name,
             "marketplace": marketplace,
             "added_at": datetime.now().isoformat()
         }
@@ -114,7 +108,7 @@ class TaskQueue:
         while self.running:
             try:
                 # Проверяем режим техработ
-                if MaintenanceMode.is_active():
+                if maintenance_mode.is_active():
                     logger.warning("Режим техработ активен, воркер приостановлен")
                     await asyncio.sleep(30)
                     continue
@@ -133,7 +127,7 @@ class TaskQueue:
                 await self._process_task(task)
 
                 # Рандомная задержка между задачами
-                delay = random.uniform(5, 15)
+                delay = random.uniform(10, 20)
                 logger.info(f"Задержка перед следующей задачей: {delay:.2f} сек")
                 await asyncio.sleep(delay)
 
@@ -148,10 +142,9 @@ class TaskQueue:
     async def _process_task(self, task: dict):
         """Обрабатывает одну задачу из очереди"""
         task_type = task["type"]
-        url = task["url"]
 
         try:
-            # Для корзины используем отдельную логику
+            # Для добавления корзины используем отдельную логику
             if task_type == "add_cart":
                 await self._handle_add_cart(task)
                 return
@@ -160,49 +153,6 @@ class TaskQueue:
             if task_type == "update_cart":
                 await self._handle_update_cart(task)
                 return
-
-            # Для товаров парсим через scrape_ozon_product (до 3 попыток)
-            product_name = None
-            price = None
-
-            for attempt in range(1, 4):
-                logger.info(f"Попытка парсинга {attempt}/3: {url}")
-
-                # Передаём user_id в scraper
-                user_id = task.get("user_id")
-                product_name, price = await scrape_ozon_product(url, user_id=user_id)
-
-                if product_name and price:
-                    logger.info(f"Товар успешно спарсен: {product_name}, цена: {price}")
-                    break
-                elif product_name == 'no_connection':
-                    logger.info("Cтраница 'нет соединения'")
-                    await self.bot.send_message(
-                        task["user_id"],
-                        f"❌ Нет соединения с Ozon!"
-                    )
-                    return
-                elif product_name == 'end':
-                    logger.info('Товар закончился')
-                    await self.bot.send_message(
-                        task["user_id"],
-                        f"❌ Товар закончился, рекомендуется удалить из списка: {url}"
-                    )
-                    return
-                else:
-                    logger.warning(f"Попытка {attempt} не удалась")
-                    if attempt < 3:
-                        await asyncio.sleep(5)
-
-            # Если все 3 попытки провалились — включаем режим техработ
-            if not product_name or not price:
-                logger.error(f"Все 3 попытки парсинга провалились для {url}")
-                await self._activate_maintenance_mode()
-
-            if task_type == "add_product":
-                await self._handle_add_product(task, product_name, price)
-            elif task_type == "update_price":
-                await self._handle_update_price(task, product_name, price)
 
         except Exception as e:
             logger.error(f"Ошибка при обработке задачи {task_type}: {e}", exc_info=True)
@@ -215,54 +165,6 @@ class TaskQueue:
                     )
                 except Exception as send_error:
                     logger.error(f"Не удалось отправить сообщение пользователю: {send_error}")
-
-    async def _handle_add_product(self, task: dict, product_name: str | None, price: str | None):
-        """Обрабатывает задачу добавления товара"""
-        user_id = task["user_id"]
-        url = task["url"]
-        marketplace = task.get("marketplace", "ozon")
-
-        if not product_name or not price:
-            logger.error(f"Не удалось спарсить товар после 3 попыток: {url}")
-            await self.bot.send_message(
-                user_id,
-                "❌ Не удалось получить данные о товаре после 3 попыток.\n\n"
-                "Возможные причины:\n"
-                "- Обнаружена капча (требуется ручное решение)\n"
-                "- Неверная ссылка\n"
-                "- Товар недоступен"
-            )
-            return
-
-        # Извлекаем число из строки цены
-        import re
-        price_match = re.search(r'(\d+)', price)
-        if not price_match:
-            logger.error(f"Ошибка при обработке цены: {price}")
-            await self.bot.send_message(user_id, "❌ Ошибка при обработке цены.")
-            return
-
-        price_int = int(price_match.group(1))
-
-        # Импортируем Marketplace для создания enum
-        from core.models import Marketplace
-        marketplace_enum = Marketplace(marketplace)
-
-        # Сохраняем в БД
-        logger.info(f"Сохранение товара в БД: {product_name}")
-        product_id = await add_product(url, product_name, price_int, user_id, marketplace_enum)
-
-        if product_id:
-            logger.info(f"Товар успешно добавлен в БД с ID: {product_id}")
-            await self.bot.send_message(
-                user_id,
-                f"✅ Товар добавлен!\n\n"
-                f"Название: {product_name}\n"
-                f"Цена: {price}"
-            )
-        else:
-            logger.warning(f"Товар уже существует в БД для пользователя {user_id}: {url}")
-            await self.bot.send_message(user_id, "⚠️ Этот товар уже добавлен в твой список.")
 
     async def _handle_add_cart(self, task: dict):
         """Обрабатывает задачу добавления корзины"""
@@ -300,12 +202,6 @@ class TaskQueue:
             # Проверяем на специальный маркер maintenance_required
             if cart_products == "maintenance_required":
                 logger.error("Получен маркер maintenance_required - прерываем попытки парсинга")
-                await self.bot.send_message(
-                    user_id,
-                    "❌ Не удалось получить данные корзины.\n\n"
-                    "Обнаружена блокировка, разблокировка не удалась.\n"
-                    "Бот переведён в режим техработ."
-                )
                 return
 
             if cart_products:
@@ -318,20 +214,11 @@ class TaskQueue:
 
         # Если все 3 попытки провалились
         if not cart_products:
-            logger.error(f"Все 3 попытки парсинга корзины провалились для {cart_url}")
-            await self.bot.send_message(
-                user_id,
-                "❌ Не удалось получить данные корзины после 3 попыток.\n\n"
-                "Возможные причины:\n"
-                "- Обнаружена капча (требуется ручное решение)\n"
-                "- Неверная ссылка\n"
-                "- Корзина пуста или недоступна"
-            )
+            logger.error(f"Все 3 попытки парсинга корзины провалились для {cart_url} пользователя {user_id}")
             await self._activate_maintenance_mode()
             return
 
         # Получаем текущие товары пользователя (включая удалённые из корзины)
-        from core.database import get_product_by_name, mark_product_not_in_cart, mark_product_in_cart
         current_products = await get_all_products(user_id, in_cart_only=False)
 
         # Создаём словари для быстрого поиска
@@ -341,8 +228,6 @@ class TaskQueue:
         logger.info(f"Текущие товары пользователя (всего): {len(current_products)}")
         logger.info(f"Товары в корзине: {len(cart_products)}")
 
-        # Импортируем Marketplace для создания enum
-        from core.models import Marketplace
         marketplace_enum = Marketplace(marketplace)
 
         # Счётчики изменений
@@ -480,12 +365,11 @@ class TaskQueue:
 
         # Если все 3 попытки провалились
         if not cart_products:
-            logger.error(f"Все 3 попытки парсинга корзины провалились для пользователя {user_id}")
+            logger.error(f"Все 3 попытки парсинга корзины провалились для {cart_url} пользователя {user_id}")
             await self._activate_maintenance_mode()
             return
 
         # Получаем текущие товары пользователя из БД (включая удалённые из корзины)
-        from core.database import mark_product_not_in_cart, mark_product_in_cart
         current_products = await get_all_products(user_id, in_cart_only=False)
 
         # Создаём словари для быстрого поиска
@@ -570,70 +454,15 @@ class TaskQueue:
 
         logger.info(f"Обновление цен завершено для пользователя {user_id}")
 
-    async def _handle_update_price(self, task: dict, product_name: str | None, price: str | None):
-        """Обрабатывает задачу обновления цены"""
-        product_id = task["product_id"]
-        product_display_name = task.get("product_name", f"ID {product_id}")
-
-        if not product_name or not price:
-            logger.error(f"Не удалось обновить цену товара {product_display_name}")
-            return
-
-        # Извлекаем число из строки цены
-        price_match = re.search(r'(\d+)', price)
-        if not price_match:
-            logger.warning(f"Не удалось распарсить цену: {price}")
-            return
-
-        price_int = int(price_match.group(1))
-
-        # Получаем минимальную цену до обновления
-        min_price_before = await get_min_price(product_id)
-
-        # Обновляем цену в БД
-        await update_product_price(product_id, price_int)
-        logger.info(f"✅ Цена обновлена для {product_display_name}: {price_int} ₽")
-
-        # Проверяем, упала ли цена ниже минимальной
-        if min_price_before and price_int < min_price_before:
-            logger.info(
-                f"🔔 Цена упала ниже минимальной! "
-                f"Было: {min_price_before} ₽, стало: {price_int} ₽"
-            )
-
-            # Получаем владельца товара
-            owner_id = await get_product_owner(product_id)
-            if owner_id:
-                logger.info(f"Отправка уведомления владельцу {owner_id}")
-
-                try:
-                    notification_text = (
-                        f"🔔 Цена снизилась!\n\n"
-                        f"📦 {product_display_name}\n\n"
-                        f"💰 Новая цена: {price_int} ₽\n"
-                        f"📉 Было минимум: {min_price_before} ₽\n"
-                        f"💵 Экономия: {min_price_before - price_int} ₽"
-                    )
-
-                    await self.bot.send_message(owner_id, notification_text)
-                    logger.info(f"Уведомление отправлено пользователю {owner_id}")
-                except Exception as e:
-                    logger.error(
-                        f"Не удалось отправить уведомление пользователю {owner_id}: {e}"
-                    )
-
     async def _activate_maintenance_mode(self):
         """Активирует режим техработ и уведомляет всех пользователей"""
         logger.warning("Активация режима техработ после 3 неудачных попыток парсинга")
 
         # Включаем режим техработ
-        MaintenanceMode.enable()
+        maintenance_mode.enable()
 
         # Отправляем уведомление администратору
-        await MaintenanceMode.notify_admin(
-            self.bot,
-            "🚧 Ошибка при парсинге товара! Активирован MaintenanceMode!",
-        )
+        await self.bot.send_message("🚧 Ошибка при парсинге! Активирован MaintenanceMode!")
 
     async def _save_queue(self):
         """Сохраняет текущую очередь на диск"""
@@ -646,7 +475,7 @@ class TaskQueue:
                 except asyncio.QueueEmpty:
                     break
 
-            with open(config.QUEUE_FILE, "w", encoding="utf-8") as f:
+            with open(self.queue_file, "w", encoding="utf-8") as f:
                 json.dump(tasks, f, ensure_ascii=False, indent=2)
 
             logger.info(f"Очередь сохранена на диск: {len(tasks)} задач")
@@ -655,12 +484,12 @@ class TaskQueue:
 
     async def _load_queue(self):
         """Загружает очередь с диска"""
-        if not config.QUEUE_FILE.exists():
+        if not self.queue_file.exists():
             logger.info("Файл очереди не найден, начинаем с пустой очереди")
             return
 
         try:
-            with open(config.QUEUE_FILE, "r", encoding="utf-8") as f:
+            with open(self.queue_file, "r", encoding="utf-8") as f:
                 tasks = json.load(f)
 
             for item in tasks:
@@ -675,6 +504,6 @@ class TaskQueue:
             logger.info(f"Очередь загружена с диска: {len(tasks)} задач")
 
             # Удаляем файл после загрузки
-            config.QUEUE_FILE.unlink()
+            self.queue_file.unlink()
         except Exception as e:
             logger.error(f"Ошибка при загрузке очереди: {e}", exc_info=True)

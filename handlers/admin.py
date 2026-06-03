@@ -1,17 +1,13 @@
-import logging
-
 from aiogram import F, types, Router
-from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
 from config import config
 from utils.states import BroadcastState
-from utils.maintenance import MaintenanceMode
 from core.database import broadcast_to_users
 from utils.price_updater import update_all_prices
+from loggers import logger
 
 
-logger = logging.getLogger(__name__)
 admin_router = Router()
 
 

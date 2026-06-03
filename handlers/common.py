@@ -1,15 +1,13 @@
-import logging
-
-from aiogram import F, types, Router
+from aiogram import types, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
 from config import config
 from keyboards.reply import main_kb, admin_kb
 from core.database import register_user
+from loggers import logger
 
 
-logger = logging.getLogger(__name__)
 common_router = Router()
 
 

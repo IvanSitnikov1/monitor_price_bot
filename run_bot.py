@@ -26,8 +26,8 @@ async def schedule_price_update_with_delay(task_queue):
     Args:
         task_queue: Экземпляр TaskQueue для добавления задач
     """
-    # Генерируем случайную задержку в пределах 10 минут
-    delay_seconds = random.randint(0, 10 * 60)
+    # Генерируем случайную задержку в пределах 120 минут
+    delay_seconds = random.randint(0, 120 * 60)
     minutes = (delay_seconds % 3600) // 60
     seconds = delay_seconds % 60
 
@@ -62,7 +62,7 @@ async def start_bot():
     # Настраиваем планировщик задач
     scheduler = AsyncIOScheduler()
 
-    for t in range(0, 24, 1):
+    for t in {7, 15, 22}:
         scheduler.add_job(
             schedule_price_update_with_delay,
             trigger=CronTrigger(hour=t, minute=0),
