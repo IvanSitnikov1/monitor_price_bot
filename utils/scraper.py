@@ -168,60 +168,33 @@ async def _unblock_ozon(page):
         return False, None
 
 
-async def _wait_for_captcha_solve(page, timeout: int = 120) -> bool:
+async def _check_captcha(page) -> bool:
     """
-    Ожидает решения капчи пользователем.
+    Проверяет наличие капчи на странице.
 
     Args:
         page: Страница Playwright
-        timeout: Максимальное время ожидания в секундах
 
     Returns:
-        True если капча решена, False если таймаут
+        True если капча обнаружена, False иначе
     """
-    logger.info("Обнаружена капча, ожидаем решения пользователем...")
+    captcha_selectors = [
+        'text="Сопоставьте пазл"',
+        'text="двигая ползунок"',
+        '[class*="captcha"]',
+        '[id*="captcha"]',
+    ]
 
-    try:
-        # Ждём исчезновения элементов капчи
-        # Озон использует разные типы капч, проверяем все известные селекторы
-        captcha_selectors = [
-            'text="Сопоставьте пазл"',
-            'text="двигая ползунок"',
-            '[class*="captcha"]',
-            '[id*="captcha"]',
-        ]
-
-        start_time = asyncio.get_event_loop().time()
-        check_interval = 2  # проверяем каждые 2 секунды
-
-        while (asyncio.get_event_loop().time() - start_time) < timeout:
-            # Проверяем, исчезла ли капча
-            captcha_found = False
-            for selector in captcha_selectors:
-                try:
-                    count = await page.locator(selector).count()
-                    if count > 0:
-                        captcha_found = True
-                        break
-                except Exception:
-                    pass
-
-            if not captcha_found:
-                logger.info("Капча решена!")
-                # Дополнительная пауза для стабилизации страницы
-                await asyncio.sleep(2)
+    for selector in captcha_selectors:
+        try:
+            count = await page.locator(selector).count()
+            if count > 0:
+                logger.warning("Обнаружена капча на странице")
                 return True
+        except Exception:
+            pass
 
-            # Ждём перед следующей проверкой
-            await asyncio.sleep(check_interval)
-            logger.debug(f"Ожидание решения капчи... ({int(asyncio.get_event_loop().time() - start_time)}s)")
-
-        logger.warning(f"Таймаут ожидания решения капчи ({timeout}s)")
-        return False
-
-    except Exception as e:
-        logger.error(f"Ошибка при ожидании решения капчи: {e}")
-        return False
+    return False
 
 
 async def _check_bot_detection(page):
@@ -338,15 +311,9 @@ async def scrape_ozon_cart(
 
     # Проверка капчи
     logger.info("Проверка наличия капчи")
-    captcha_element = page.locator('text="Сопоставьте пазл"').first
-    if await captcha_element.count() > 0:
-        logger.warning("Обнаружена капча! Ожидаем решения пользователем...")
-        captcha_solved = await _wait_for_captcha_solve(page, timeout=120)
-        if not captcha_solved:
-            logger.error("Капча не была решена в течение 120 секунд")
-            return None
-        logger.info("Капча решена, продолжаем парсинг")
-        await asyncio.sleep(2)
+    if await _check_captcha(page):
+        logger.error("Обнаружена капча! Возвращаем ошибку для активации maintenance mode")
+        return None
 
     # Парсинг товаров из корзины (с возможностью повторной попытки после разблокировки)
     logger.info("Начинаем извлечение товаров из корзины")

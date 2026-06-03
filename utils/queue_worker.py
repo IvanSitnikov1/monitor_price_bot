@@ -107,20 +107,25 @@ class TaskQueue:
 
         while self.running:
             try:
-                # Проверяем режим техработ
-                if maintenance_mode.is_active():
-                    logger.warning("Режим техработ активен, воркер приостановлен")
-                    await asyncio.sleep(30)
-                    continue
-
                 # Получаем задачу с наивысшим приоритетом
                 priority, counter, task = await asyncio.wait_for(
                     self.queue.get(),
                     timeout=1.0
                 )
 
+                # Проверяем персональный режим техработ для пользователя
+                user_id = task.get("user_id")
+                if user_id and maintenance_mode.is_active(user_id):
+                    logger.warning(
+                        f"Пользователь {user_id} в режиме техработ, задача пропущена. "
+                        f"Тип: {task['type']}"
+                    )
+                    await asyncio.sleep(1)
+                    continue
+
                 logger.info(
                     f"Обработка задачи: {task['type']}, "
+                    f"user_id={user_id}, "
                     f"приоритет={priority}, осталось в очереди={self.queue.qsize()}"
                 )
 
@@ -196,7 +201,7 @@ class TaskQueue:
                 user_id=user_id,
                 browser_manager=self.browser_manager,
                 is_refresh=is_refresh,
-                maintenance_callback=self._activate_maintenance_mode
+                maintenance_callback=lambda: self._activate_maintenance_mode(user_id)
             )
 
             # Проверяем на специальный маркер maintenance_required
@@ -215,7 +220,7 @@ class TaskQueue:
         # Если все 3 попытки провалились
         if not cart_products:
             logger.error(f"Все 3 попытки парсинга корзины провалились для {cart_url} пользователя {user_id}")
-            await self._activate_maintenance_mode()
+            # Maintenance mode уже активирован внутри scrape_ozon_cart через callback
             return
 
         # Получаем текущие товары пользователя (включая удалённые из корзины)
@@ -267,7 +272,6 @@ class TaskQueue:
             # Если товар новый — добавляем
             else:
                 product_id = await add_product(
-                    url=f"cart_item_{product_name}",  # Временный URL
                     name=product_name,
                     price=new_price,
                     user_id=user_id,
@@ -347,7 +351,7 @@ class TaskQueue:
                 user_id=user_id,
                 browser_manager=self.browser_manager,
                 is_refresh=is_refresh,
-                maintenance_callback=self._activate_maintenance_mode
+                maintenance_callback=lambda: self._activate_maintenance_mode(user_id)
             )
 
             # Проверяем на специальный маркер maintenance_required
@@ -366,7 +370,7 @@ class TaskQueue:
         # Если все 3 попытки провалились
         if not cart_products:
             logger.error(f"Все 3 попытки парсинга корзины провалились для {cart_url} пользователя {user_id}")
-            await self._activate_maintenance_mode()
+            # Maintenance mode уже активирован внутри scrape_ozon_cart через callback
             return
 
         # Получаем текущие товары пользователя из БД (включая удалённые из корзины)
@@ -454,15 +458,39 @@ class TaskQueue:
 
         logger.info(f"Обновление цен завершено для пользователя {user_id}")
 
-    async def _activate_maintenance_mode(self):
-        """Активирует режим техработ и уведомляет всех пользователей"""
-        logger.warning("Активация режима техработ после 3 неудачных попыток парсинга")
+    async def _activate_maintenance_mode(self, user_id: int):
+        """
+        Активирует режим техработ для конкретного пользователя.
 
-        # Включаем режим техработ
-        maintenance_mode.enable()
+        Args:
+            user_id: ID пользователя
+        """
+        logger.warning(f"Активация режима техработ для пользователя {user_id} после неудачного парсинга")
+
+        # Включаем режим техработ для пользователя
+        maintenance_mode.enable(user_id)
+
+        # Отправляем уведомление пользователю
+        try:
+            await self.bot.send_message(
+                user_id,
+                "🚧 Обнаружена проблема при обновлении цен.\n"
+                "Обновления для вашего профиля временно приостановлены.\n"
+                "Администратор решит проблему в ближайшее время."
+            )
+        except Exception as e:
+            logger.error(f"Не удалось отправить уведомление пользователю {user_id}: {e}")
 
         # Отправляем уведомление администратору
-        await self.bot.send_message("🚧 Ошибка при парсинге! Активирован MaintenanceMode!")
+        try:
+            await self.bot.send_message(
+                config.ADMIN_USER_ID,
+                f"🚧 Активирован maintenance mode для пользователя {user_id}\n"
+                f"Причина: ошибка при парсинге корзины (капча/блокировка)\n\n"
+                f"Для разблокировки удалите файл: maintenance_flags/maintenance_{user_id}.flag"
+            )
+        except Exception as e:
+            logger.error(f"Не удалось отправить уведомление администратору: {e}")
 
     async def _save_queue(self):
         """Сохраняет текущую очередь на диск"""

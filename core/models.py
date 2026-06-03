@@ -13,7 +13,6 @@ class Marketplace(str, Enum):
 class Product(BaseModel):
     """Модель товара"""
     id: int = Field(description="ID товара", examples=[1])
-    url: str = Field(description="URL товара", examples=["https://www.ozon.ru/product/..."])
     name: str = Field(description="Название товара", examples=["Смартфон Apple iPhone 15"])
     marketplace: Marketplace = Field(
         description="Маркетплейс товара",

@@ -421,3 +421,42 @@
         - Показывать все товары (включая `in_cart=0`) в списке позиций
         - Добавить префикс "🗑" для удалённых товаров в клавиатуре
     *   [ ] Протестировать работу с частично совпадающими корзинами
+
+## Этап 16: Персональный Maintenance Mode (03.06.2026)
+
+47. **Рефакторинг maintenance mode на персональный:**
+    *   [x] Переработать класс `MaintenanceMode` в `utils/maintenance.py`:
+        - Флаги хранятся в `maintenance_flags/maintenance_{user_id}.flag`
+        - Методы: `is_active(user_id)`, `enable(user_id)`, `disable(user_id)`
+        - Добавлен метод `get_blocked_users()` для получения списка заблокированных
+    *   [x] Убрать ожидание капчи в `utils/scraper.py`:
+        - Удалена функция `_wait_for_captcha_solve()` (ждала 120 сек)
+        - Добавлена функция `_check_captcha()` для быстрой проверки
+        - При обнаружении капчи сразу возвращается `None`
+    *   [x] Обновить `utils/queue_worker.py`:
+        - Воркер проверяет `maintenance_mode.is_active(user_id)` перед обработкой задачи
+        - Задачи заблокированных пользователей пропускаются
+        - Метод `_activate_maintenance_mode(user_id)` блокирует конкретного пользователя
+        - Уведомления отправляются и пользователю, и админу
+        - Админу приходит путь к файлу флага для ручного удаления
+    *   [ ] Протестировать персональный maintenance mode
+
+## Этап 17: Удаление поля URL из товаров (03.06.2026)
+
+48. **Рефакторинг модели Product — удаление url:**
+    *   [x] Удалить поле `url` из модели `Product` в `core/models.py`
+    *   [x] Обновить схему БД в `core/database.py`:
+        - Удалить поле `url` из таблицы `products`
+        - Удалить функцию `check_user_has_product()`
+        - Обновить `add_product()` - убрать параметр url, убрать проверку дубликатов
+        - Обновить `get_all_products()` - убрать url из SELECT
+        - Обновить `get_product_details()` - убрать url из SELECT
+        - Обновить `get_all_products_for_update()` - убрать url из SELECT
+        - Обновить `get_product_by_name()` - убрать url из SELECT
+    *   [x] Обновить `utils/queue_worker.py`:
+        - Убрать временный url при добавлении товаров из корзины
+    *   [x] Обновить `handlers/callbacks.py`:
+        - Убрать вывод url из карточки товара
+    *   [x] Создать миграцию `migrations/migrate_remove_url.py`
+    *   [ ] Запустить миграцию БД
+    *   [ ] Протестировать работу без поля url

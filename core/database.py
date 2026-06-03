@@ -28,7 +28,6 @@ async def setup_database():
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
-                url TEXT NOT NULL,
                 name TEXT NOT NULL,
                 marketplace TEXT NOT NULL DEFAULT 'ozon',
                 in_cart INTEGER NOT NULL DEFAULT 1,
@@ -68,29 +67,7 @@ async def setup_database():
         await db.commit()
 
 
-async def check_user_has_product(user_id: int, url: str) -> bool:
-    """
-    Проверяет, есть ли у пользователя товар с данным URL.
-
-    Args:
-        user_id: ID пользователя Telegram
-        url: URL товара
-
-    Returns:
-        True если пользователь уже имеет этот товар, False иначе
-    """
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute("""
-            SELECT 1
-            FROM products
-            WHERE user_id = ? AND url = ?
-        """, (user_id, url))
-
-        return await cursor.fetchone() is not None
-
-
 async def add_product(
-    url: str,
     name: str,
     price: int,
     user_id: int,
@@ -100,14 +77,13 @@ async def add_product(
     Добавляет новый товар для пользователя.
 
     Args:
-        url: URL товара
         name: Название товара
         price: Цена товара (число без символа рубля)
         user_id: ID пользователя Telegram
         marketplace: Маркетплейс товара
 
     Returns:
-        ID товара или None, если пользователь уже имеет этот товар
+        ID добавленного товара
     """
     async with aiosqlite.connect(DB_PATH) as db:
         # Включаем поддержку внешних ключей
@@ -115,20 +91,10 @@ async def add_product(
 
         date_now = datetime.now().isoformat()
 
-        # Проверяем, есть ли уже такой товар у пользователя
-        cursor = await db.execute(
-            "SELECT id FROM products WHERE user_id = ? AND url = ?",
-            (user_id, url)
-        )
-        existing_product = await cursor.fetchone()
-
-        if existing_product:
-            return None
-
         # Создаем новый товар
         cursor = await db.execute(
-            "INSERT INTO products (user_id, url, name, marketplace, date_added) VALUES (?, ?, ?, ?, ?)",
-            (user_id, url, name, marketplace.value, date_now)
+            "INSERT INTO products (user_id, name, marketplace, date_added) VALUES (?, ?, ?, ?)",
+            (user_id, name, marketplace.value, date_now)
         )
         product_id = cursor.lastrowid
 
@@ -152,7 +118,7 @@ async def get_all_products(user_id: int, marketplace: str | None = None, in_cart
         in_cart_only: Если True, возвращает только товары в корзине (по умолчанию)
 
     Returns:
-        Список словарей с полями: id, url, name, marketplace, current_price, in_cart
+        Список словарей с полями: id, name, marketplace, current_price, in_cart
     """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -160,7 +126,6 @@ async def get_all_products(user_id: int, marketplace: str | None = None, in_cart
         query = """
             SELECT
                 p.id,
-                p.url,
                 p.name,
                 p.marketplace,
                 p.in_cart,
@@ -201,7 +166,7 @@ async def get_product_details(product_id: int, user_id: int) -> dict | None:
         user_id: ID пользователя Telegram
 
     Returns:
-        Словарь с полями: id, url, name, date_added, min_price, min_price_date,
+        Словарь с полями: id, name, date_added, min_price, min_price_date,
         max_price, max_price_date, current_price или None если товар не принадлежит пользователю
     """
     async with aiosqlite.connect(DB_PATH) as db:
@@ -210,7 +175,6 @@ async def get_product_details(product_id: int, user_id: int) -> dict | None:
         cursor = await db.execute("""
             SELECT
                 p.id,
-                p.url,
                 p.name,
                 p.date_added,
                 (SELECT price FROM price_history
@@ -237,13 +201,13 @@ async def get_all_products_for_update() -> list[dict]:
     Получает список всех товаров для фонового обновления цен.
 
     Returns:
-        Список словарей с полями: id, user_id, url, name, marketplace
+        Список словарей с полями: id, user_id, name, marketplace
     """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
 
         cursor = await db.execute("""
-            SELECT id, user_id, url, name, marketplace
+            SELECT id, user_id, name, marketplace
             FROM products
             ORDER BY id
         """)
@@ -353,13 +317,13 @@ async def get_product_by_name(user_id: int, name: str) -> dict | None:
         name: Название товара
 
     Returns:
-        Словарь с полями: id, url, name, marketplace, in_cart или None
+        Словарь с полями: id, name, marketplace, in_cart или None
     """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
 
         cursor = await db.execute(
-            "SELECT id, url, name, marketplace, in_cart FROM products WHERE user_id = ? AND name = ?",
+            "SELECT id, name, marketplace, in_cart FROM products WHERE user_id = ? AND name = ?",
             (user_id, name)
         )
 
@@ -532,22 +496,6 @@ async def get_pending_auth_requests() -> list[dict]:
 
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
-
-
-async def get_all_user_ids() -> list[int]:
-    """
-    Получает список всех уникальных ID пользователей бота.
-
-    Returns:
-        Список ID пользователей Telegram
-    """
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute(
-            "SELECT user_id FROM users ORDER BY user_id"
-        )
-
-        rows = await cursor.fetchall()
-        return [row[0] for row in rows]
 
 
 async def register_user(user_id: int, username: str | None, first_name: str | None):

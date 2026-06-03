@@ -39,8 +39,7 @@ async def show_product_details(callback: types.CallbackQuery):
         f"📅 Начало отслеживания: {date_added}\n\n"
         f"💰 Текущая цена: {product['current_price']} ₽\n"
         f"📉 Минимальная цена: {product['min_price']} ₽ ({min_price_date})\n"
-        f"📈 Максимальная цена: {product['max_price']} ₽ ({max_price_date})\n\n"
-        f"🔗 {product['url']}"
+        f"📈 Максимальная цена: {product['max_price']} ₽ ({max_price_date})"
     )
 
     await callback.message.answer(
