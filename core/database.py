@@ -60,7 +60,9 @@ async def setup_database():
                 phone TEXT NOT NULL,
                 username TEXT,
                 request_date TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending'
+                status TEXT NOT NULL DEFAULT 'pending',
+                agreement_accepted INTEGER NOT NULL DEFAULT 0,
+                agreement_date TEXT
             )
         """)
 
@@ -431,9 +433,9 @@ async def save_auth_request(user_id: int, phone: str, username: str | None):
         date_now = datetime.now().isoformat()
 
         await db.execute("""
-            INSERT OR REPLACE INTO auth_requests (user_id, phone, username, request_date, status)
-            VALUES (?, ?, ?, ?, 'pending')
-        """, (user_id, phone, username, date_now))
+            INSERT OR REPLACE INTO auth_requests (user_id, phone, username, request_date, status, agreement_accepted, agreement_date)
+            VALUES (?, ?, ?, ?, 'pending', 1, ?)
+        """, (user_id, phone, username, date_now, date_now))
 
         await db.commit()
 
@@ -478,6 +480,31 @@ async def update_auth_request_status(user_id: int, status: str):
         )
 
         await db.commit()
+
+
+async def delete_user_auth_data(user_id: int):
+    """
+    Удаляет все данные авторизации пользователя (отзыв согласия).
+
+    Args:
+        user_id: ID пользователя Telegram
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Включаем поддержку внешних ключей
+        await db.execute("PRAGMA foreign_keys = ON")
+
+        date_now = datetime.now().isoformat()
+
+        # Удаляем запрос на авторизацию
+        await db.execute(
+            "DELETE FROM auth_requests WHERE user_id = ?",
+            (user_id,)
+        )
+
+        await db.commit()
+
+        from loggers import logger
+        logger.info(f"Данные авторизации пользователя {user_id} удалены из БД (отзыв согласия в {date_now})")
 
 
 async def get_pending_auth_requests() -> list[dict]:

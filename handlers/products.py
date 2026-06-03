@@ -3,7 +3,7 @@ from aiogram.fsm.context import FSMContext
 
 from keyboards.inline import get_products_keyboard
 from utils.states import AddCart
-from core.database import get_all_products
+from core.database import get_all_products, register_user
 from core.models import Marketplace
 from loggers import logger
 
@@ -11,11 +11,15 @@ from loggers import logger
 products_router = Router()
 
 
-# Обработчик кнопки "Добавить корзину"
-@products_router.message(F.text == "Добавить корзину")
+# Обработчик кнопки "Добавить товары"
+@products_router.message(F.text == "Добавить товары")
 async def add_cart(message: types.Message, state: FSMContext):
     user = message.from_user
-    logger.info(f"Пользователь {user.id} начал добавление корзины")
+    logger.info(f"Пользователь {user.id} начал добавление товаров")
+
+    # Регистрируем пользователя, если его нет в БД
+    await register_user(user.id, user.username, user.first_name)
+
     await message.answer(
         "Отправь мне ссылку на корзину Ozon.\n"
         "Формат: https://www.ozon.ru/cart?share=..."
@@ -52,6 +56,9 @@ async def process_cart_link(message: types.Message, state: FSMContext):
     text = message.text.strip()
 
     logger.info(f"Пользователь {user.id} отправил ссылку на корзину: {text}")
+
+    # Регистрируем пользователя перед добавлением товаров (на случай, если его ещё нет)
+    await register_user(user.id, user.username, user.first_name)
 
     # Проверяем формат ссылки на корзину
     if not text.startswith("https://www.ozon.ru/cart?share="):
