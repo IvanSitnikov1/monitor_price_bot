@@ -56,25 +56,27 @@ async def _human_delay(min_s=0.5, max_s=2.0):
     await asyncio.sleep(delay)
 
 
-async def _unblock_ozon(page):
+async def _unblock_ozon(page, cart_url: str):
     """
-    Разблокирует доступ к Озону через ожидание и проверку главной страницы.
+    Разблокирует доступ к Озону через открытие новой вкладки и переход на корзину.
 
     Логика:
     1. Ждёт 5 минут
     2. Открывает новую вкладку
     3. Применяет полный набор stealth-патчей
-    4. Эмулирует ввод URL в адресную строку через CDP
-    5. Ждёт полной загрузки (networkidle)
+    4. Открывает главную страницу Ozon
+    5. Ждёт полной загрузки
     6. Проверяет наличие блокировки
-    7. Закрывает старую вкладку только при успехе
+    7. Если блокировки нет — открывает корзину в той же вкладке
+    8. Закрывает старую вкладку
 
     Args:
         page: Страница Playwright (старая вкладка с блокировкой)
+        cart_url: URL корзины для открытия после разблокировки
 
     Returns:
         Кортеж (успех, новая_страница):
-        - (True, new_page) если разблокировка успешна
+        - (True, new_page) если разблокировка успешна (страница уже на корзине)
         - (False, None) если блокировка осталась
     """
     logger.info("Попытка разблокировки: ожидание 5 минут перед проверкой...")
@@ -121,7 +123,6 @@ async def _unblock_ozon(page):
         await asyncio.sleep(delay)
 
         # Эмулируем ввод URL в адресную строку через CDP
-        # Это более естественный способ навигации, чем page.goto()
         logger.info("Эмуляция ввода URL через CDP (как ручной ввод в адресную строку)")
         cdp = await new_page.context.new_cdp_session(new_page)
 
@@ -158,9 +159,25 @@ async def _unblock_ozon(page):
             return False, None
         else:
             logger.info("Блокировка снята, доступ к Ozon восстановлен")
-            # Закрываем старую вкладку только после успешной проверки
+
+            # Закрываем старую вкладку
             await page.close()
             logger.info("Старая вкладка закрыта")
+
+            # Открываем корзину в новой вкладке
+            logger.info(f"Открываем корзину в новой вкладке: {cart_url}")
+            await asyncio.sleep(random.uniform(2, 4))
+            await new_page.goto(cart_url, timeout=45000, wait_until='domcontentloaded')
+            logger.info("Корзина открыта в новой вкладке")
+
+            # Задержка и имитация поведения
+            await asyncio.sleep(random.uniform(3, 5))
+
+            try:
+                await new_page.wait_for_load_state('networkidle', timeout=10000)
+            except PlaywrightTimeoutError:
+                logger.warning("Networkidle timeout при открытии корзины")
+
             return True, new_page
 
     except Exception as e:
@@ -382,7 +399,7 @@ async def scrape_ozon_cart(
 
                 # Пытаемся разблокировать
                 unblock_attempted = True
-                unblock_success, new_page = await _unblock_ozon(page)
+                unblock_success, new_page = await _unblock_ozon(page, url)
 
                 if not unblock_success:
                     logger.error("Не удалось разблокировать доступ к Озону")
@@ -396,19 +413,12 @@ async def scrape_ozon_cart(
                     return "maintenance_required"
 
                 # Используем новую страницу после разблокировки
+                # Корзина уже открыта в новой вкладке
                 page = new_page
-                logger.info("Переключились на новую вкладку после разблокировки")
+                logger.info("Переключились на новую вкладку, корзина уже загружена")
 
-                # Возвращаемся на страницу корзины
-                logger.info(f"Повторный переход на страницу корзины: {url}")
-                await page.goto(url, timeout=45000, wait_until='domcontentloaded')
-                await _human_delay()
+                # Продолжаем парсинг без повторного перехода
                 await _human_like_behavior(page)
-
-                try:
-                    await page.wait_for_load_state('networkidle', timeout=10000)
-                except PlaywrightTimeoutError:
-                    logger.warning("Networkidle timeout после разблокировки")
 
                 # Сохраняем скриншот после разблокировки
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')

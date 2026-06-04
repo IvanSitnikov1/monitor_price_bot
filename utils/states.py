@@ -15,3 +15,8 @@ class LoginState(StatesGroup):
 
 class BroadcastState(StatesGroup):
     waiting_for_message = State()
+
+
+class AuthorizationInProgress(StatesGroup):
+    waiting_for_qr_link = State()
+    waiting_for_confirmation = State()
