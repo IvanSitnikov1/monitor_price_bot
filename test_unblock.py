@@ -107,6 +107,60 @@ async def _unblock_ozon(page):
         await new_page.set_viewport_size({"width": 1920, "height": 1080})
         logger.info("Stealth-патчи применены к новой вкладке")
 
+        # Дополнительная маскировка через JS
+        logger.info("Применяем дополнительные JS-патчи на новую вкладку")
+        await new_page.add_init_script("""
+            // Удаляем webdriver свойство
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+
+            // Фиксим permissions API
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+
+            // Добавляем реалистичные plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [
+                    {
+                        0: {type: "application/x-google-chrome-pdf", suffixes: "pdf", description: "Portable Document Format"},
+                        description: "Portable Document Format",
+                        filename: "internal-pdf-viewer",
+                        length: 1,
+                        name: "Chrome PDF Plugin"
+                    },
+                    {
+                        0: {type: "application/pdf", suffixes: "pdf", description: ""},
+                        description: "",
+                        filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai",
+                        length: 1,
+                        name: "Chrome PDF Viewer"
+                    }
+                ]
+            });
+
+            // Фиксим chrome runtime
+            Object.defineProperty(window, 'chrome', {
+                get: () => ({
+                    runtime: {}
+                })
+            });
+
+            // Переопределяем toString для маскировки
+            const originalToString = Function.prototype.toString;
+            Function.prototype.toString = function() {
+                if (this === window.navigator.permissions.query) {
+                    return 'function query() { [native code] }';
+                }
+                return originalToString.call(this);
+            };
+        """)
+        logger.info("JS-патчи применены к новой вкладке")
+
         # Задержка перед навигацией (5-10 секунд)
         delay = random.uniform(5, 10)
         logger.info(f"Задержка перед навигацией: {delay:.2f}s")
@@ -203,15 +257,24 @@ async def test_unblock():
                     '--disable-dev-shm-usage',
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
-                    '--disable-web-security',
-                    '--disable-features=IsolateOrigins,site-per-process',
                     '--window-size=1920,1080',
-                    '--new-window',  # Открыть новое окно вместо подключения к существующему
+                    '--new-window',
+                    # Дополнительные флаги для обхода детекта
+                    '--disable-infobars',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-features=TranslateUI',
+                    '--disable-ipc-flooding-protection',
+                    '--no-first-run',
+                    '--no-default-browser-check',
+                    '--disable-component-update',
                 ],
                 viewport={'width': 1920, 'height': 1080},
                 locale='ru-RU',
                 timezone_id='Europe/Moscow',
-                ignore_default_args=['--enable-automation'],  # Убираем флаг автоматизации
+                ignore_default_args=['--enable-automation'],
+                bypass_csp=True,  # Обход Content Security Policy
             )
             logger.info("Браузер запущен успешно")
 
@@ -232,6 +295,60 @@ async def test_unblock():
             )
             await stealth.apply_stealth_async(page)
             logger.info("Stealth-патчи применены")
+
+            # Дополнительная маскировка через JS
+            logger.info("Применяем дополнительные JS-патчи для обхода детекта")
+            await page.add_init_script("""
+                // Удаляем webdriver свойство
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+
+                // Фиксим permissions API
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+
+                // Добавляем реалистичные plugins
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [
+                        {
+                            0: {type: "application/x-google-chrome-pdf", suffixes: "pdf", description: "Portable Document Format"},
+                            description: "Portable Document Format",
+                            filename: "internal-pdf-viewer",
+                            length: 1,
+                            name: "Chrome PDF Plugin"
+                        },
+                        {
+                            0: {type: "application/pdf", suffixes: "pdf", description: ""},
+                            description: "",
+                            filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai",
+                            length: 1,
+                            name: "Chrome PDF Viewer"
+                        }
+                    ]
+                });
+
+                // Фиксим chrome runtime
+                Object.defineProperty(window, 'chrome', {
+                    get: () => ({
+                        runtime: {}
+                    })
+                });
+
+                // Переопределяем toString для маскировки
+                const originalToString = Function.prototype.toString;
+                Function.prototype.toString = function() {
+                    if (this === window.navigator.permissions.query) {
+                        return 'function query() { [native code] }';
+                    }
+                    return originalToString.call(this);
+                };
+            """)
+            logger.info("JS-патчи применены")
 
             # Переходим на главную страницу Ozon
             logger.info("Переход на главную страницу Ozon...")
