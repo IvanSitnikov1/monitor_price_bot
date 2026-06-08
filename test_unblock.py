@@ -186,7 +186,7 @@ async def test_unblock():
         try:
             # Запускаем браузер с профилем пользователя
             browser = await p.chromium.launch_persistent_context(
-                user_data_dir=str(profile_path),
+                user_data_dir=str(profile_path.absolute()),
                 headless=False,
                 channel='chromium',  # Используем системный chromium
                 args=[
@@ -198,7 +198,6 @@ async def test_unblock():
                     '--disable-features=IsolateOrigins,site-per-process',
                     '--window-size=1920,1080',
                     '--new-window',  # Открыть новое окно вместо подключения к существующему
-                    '--user-data-dir=' + str(profile_path.absolute()),  # Явно указываем профиль
                 ],
                 viewport={'width': 1920, 'height': 1080},
                 locale='ru-RU',
