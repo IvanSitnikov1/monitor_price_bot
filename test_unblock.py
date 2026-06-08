@@ -166,23 +166,10 @@ async def _unblock_ozon(page):
         logger.info(f"Задержка перед навигацией: {delay:.2f}s")
         await asyncio.sleep(delay)
 
-        # Эмулируем ручной ввод URL (более естественный способ)
-        logger.info("Эмуляция ручного ввода URL в адресную строку")
-
-        # Фокусируемся на адресной строке (Ctrl+L)
-        await new_page.keyboard.press('Control+L')
-        await asyncio.sleep(random.uniform(0.3, 0.7))
-
-        # Набираем URL посимвольно с человеческими задержками
-        url_to_type = "ozon.ru"
-        for char in url_to_type:
-            await new_page.keyboard.type(char)
-            await asyncio.sleep(random.uniform(0.05, 0.15))
-
-        # Нажимаем Enter
-        await asyncio.sleep(random.uniform(0.3, 0.8))
-        await new_page.keyboard.press('Enter')
-        logger.info("URL введён, ожидаем загрузки")
+        # Вариант 1: Через window.location (как если бы пользователь кликнул на ссылку)
+        logger.info("Переход на Ozon через window.location.href")
+        await new_page.evaluate("window.location.href = 'https://www.ozon.ru/'")
+        logger.info("Навигация через window.location отправлена")
 
         # Ждём загрузки страницы (domcontentloaded)
         await new_page.wait_for_load_state('domcontentloaded', timeout=30000)
@@ -351,8 +338,8 @@ async def test_unblock():
             logger.info("JS-патчи применены")
 
             # Переходим на главную страницу Ozon
-            logger.info("Переход на главную страницу Ozon...")
-            await page.goto('https://www.ozon.ru/', timeout=45000, wait_until='domcontentloaded')
+            logger.info("Переход на главную страницу Ozon через window.location...")
+            await page.evaluate("window.location.href = 'https://www.ozon.ru/'")
             await _human_delay()
             await _human_like_behavior(page)
 
