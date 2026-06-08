@@ -165,7 +165,7 @@ async def test_unblock():
     Тестирует обход блокировки Ozon с профилем пользователя 1189033386.
     """
     user_id = 1189033386
-    profile_path = Path.home() / ".config" / "chromium" / str(user_id)
+    profile_path = Path("user_data") / str(user_id)
 
     logger.info(f"=== Начало теста обхода блокировки Ozon ===")
     logger.info(f"User ID: {user_id}")
@@ -188,6 +188,7 @@ async def test_unblock():
             browser = await p.chromium.launch_persistent_context(
                 user_data_dir=str(profile_path),
                 headless=False,
+                channel='chromium',  # Используем системный chromium
                 args=[
                     '--disable-blink-features=AutomationControlled',
                     '--disable-dev-shm-usage',
@@ -196,10 +197,13 @@ async def test_unblock():
                     '--disable-web-security',
                     '--disable-features=IsolateOrigins,site-per-process',
                     '--window-size=1920,1080',
+                    '--new-window',  # Открыть новое окно вместо подключения к существующему
+                    '--user-data-dir=' + str(profile_path.absolute()),  # Явно указываем профиль
                 ],
                 viewport={'width': 1920, 'height': 1080},
                 locale='ru-RU',
                 timezone_id='Europe/Moscow',
+                ignore_default_args=['--enable-automation'],  # Убираем флаг автоматизации
             )
             logger.info("Браузер запущен успешно")
 
