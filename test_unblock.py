@@ -112,14 +112,23 @@ async def _unblock_ozon(page):
         logger.info(f"Задержка перед навигацией: {delay:.2f}s")
         await asyncio.sleep(delay)
 
-        # Эмулируем ввод URL в адресную строку через CDP
-        # Это более естественный способ навигации, чем page.goto()
-        logger.info("Эмуляция ввода URL через CDP (как ручной ввод в адресную строку)")
-        cdp = await new_page.context.new_cdp_session(new_page)
+        # Эмулируем ручной ввод URL (более естественный способ)
+        logger.info("Эмуляция ручного ввода URL в адресную строку")
 
-        # Навигация через CDP Page.navigate (ближе к ручному вводу)
-        await cdp.send('Page.navigate', {'url': 'https://www.ozon.ru/'})
-        logger.info("CDP навигация отправлена")
+        # Фокусируемся на адресной строке (Ctrl+L)
+        await new_page.keyboard.press('Control+L')
+        await asyncio.sleep(random.uniform(0.3, 0.7))
+
+        # Набираем URL посимвольно с человеческими задержками
+        url_to_type = "ozon.ru"
+        for char in url_to_type:
+            await new_page.keyboard.type(char)
+            await asyncio.sleep(random.uniform(0.05, 0.15))
+
+        # Нажимаем Enter
+        await asyncio.sleep(random.uniform(0.3, 0.8))
+        await new_page.keyboard.press('Enter')
+        logger.info("URL введён, ожидаем загрузки")
 
         # Ждём загрузки страницы (domcontentloaded)
         await new_page.wait_for_load_state('domcontentloaded', timeout=30000)
