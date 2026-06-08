@@ -281,9 +281,9 @@ async def test_unblock():
                 title = await page.title()
                 logger.info(f"Заголовок страницы: {title}")
 
-            # Ждём 5 секунд перед закрытием для визуального контроля
-            logger.info("Ожидание 5 секунд перед закрытием...")
-            await asyncio.sleep(5)
+            # Ждём ввода пользователя перед закрытием
+            logger.info("Браузер открыт. Нажмите Enter для завершения теста...")
+            input()
 
             # Закрываем браузер
             await browser.close()
