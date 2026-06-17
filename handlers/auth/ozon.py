@@ -18,147 +18,63 @@ from loggers import logger
 auth_ozon_router = Router()
 
 
-# Обработчик кнопки "🔐 Авторизация"
-@auth_ozon_router.message(F.text == "🔐 Авторизация")
-async def authorization_button(message: types.Message, state: FSMContext):
-    user = message.from_user
-    logger.info(f"Пользователь {user.id} открыл раздел авторизации")
-    await state.clear()
-
-    # Показываем меню авторизации
-    auth_menu_text = (
-        "🔐 <b>Управление авторизацией</b>\n\n"
-        "Выберите действие:"
-    )
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Авторизоваться в Ozon", callback_data="auth_start")],
+def _get_auth_menu_keyboard() -> InlineKeyboardMarkup:
+    """Создаёт меню выбора авторизации."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Авторизоваться в Ozon", callback_data="auth_ozon_start")],
+        [InlineKeyboardButton(text="✅ Авторизоваться в WB", callback_data="auth_wb_start")],
         [InlineKeyboardButton(text="🗑 Удалить мои данные", callback_data="auth_delete_data")]
     ])
 
-    await message.answer(auth_menu_text, reply_markup=keyboard, parse_mode="HTML")
 
-
-# Обработчик начала авторизации
-@auth_ozon_router.callback_query(F.data == "auth_start")
-async def start_authorization(callback: types.CallbackQuery, state: FSMContext):
-    user = callback.from_user
-    logger.info(f"Пользователь {user.id} начал процесс авторизации")
-
-    # Краткое пользовательское соглашение
-    agreement_text = (
-        "🔐 <b>Авторизация в Ozon</b>\n\n"
-
-        "Для корректного отображения цен бот использует вашу авторизацию в Ozon.\n\n"
-
-        "<b>Что нужно знать:</b>\n"
-        "• Это неофициальный сервис (не связан с Ozon)\n"
-        "• Данные авторизации хранятся на сервере администратора\n"
-        "• Вы можете удалить их в любой момент\n\n"
-
-        "📄 Подробная информация о рисках и обработке данных во вложенном файле.\n\n"
-
-        "📞 Вопросы: @Ivanches1\n\n"
-
-        "❓ <b>Продолжить авторизацию?</b>"
+async def _show_auth_marketplace_menu(message: types.Message):
+    """Показывает меню выбора маркетплейса для авторизации."""
+    auth_menu_text = (
+        "🔐 <b>Управление авторизацией</b>\n\n"
+        "Выберите магазин для авторизации:"
+    )
+    await message.answer(
+        auth_menu_text,
+        reply_markup=_get_auth_menu_keyboard(),
+        parse_mode="HTML"
     )
 
-    # Детальный disclaimer
+
+async def _send_common_agreement(message: types.Message):
+    """Отправляет общее соглашение перед выбором маркетплейса."""
+    agreement_text = (
+        "🔐 <b>Авторизация в маркетплейсах</b>\n\n"
+        "Для корректного отображения цен бот может использовать вашу авторизацию "
+        "в Ozon и Wildberries.\n\n"
+        "<b>Что нужно знать:</b>\n"
+        "• Это неофициальный сервис\n"
+        "• Данные авторизации хранятся на сервере администратора\n"
+        "• Авторизацию Wildberries администратор выполняет вручную\n"
+        "• Вы можете удалить данные авторизации в любой момент\n\n"
+        "📄 Подробная информация о рисках и обработке данных во вложенном файле.\n\n"
+        "📞 Вопросы: @Ivanches1\n\n"
+        "❓ <b>Продолжить?</b>"
+    )
+
     disclaimer_text = (
         "⚖️ ЮРИДИЧЕСКИЙ DISCLAIMER И ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ\n"
-        "Дата: 04.06.2026\n\n"
-
-        "═══════════════════════════════════════\n"
-        "1. ПРИРОДА СЕРВИСА\n"
-        "═══════════════════════════════════════\n\n"
-
-        "Этот бот является независимым сервисом для мониторинга цен. "
-        "Бот не является официальным продуктом компании Ozon.\n\n"
-
-        "═══════════════════════════════════════\n"
-        "2. ХРАНЕНИЕ И ОБРАБОТКА ДАННЫХ\n"
-        "═══════════════════════════════════════\n\n"
-
+        "Дата: 17.06.2026\n\n"
+        "Этот бот является независимым сервисом для мониторинга цен и не является "
+        "официальным продуктом Ozon или Wildberries.\n\n"
         "При авторизации обрабатываются:\n"
-        "• Номер телефона (для авторизации в Ozon)\n"
-        "• Cookies сессии Ozon\n"
-        "• Содержимое корзины Ozon\n"
-        "• Цены товаров и история изменений\n\n"
-
-        "Данные хранятся на сервере бота. Сервер принадлежит администратору.\n"
-        "Администратор технически имеет доступ к этим данным.\n"
-        "Шифрование данных для товаров и истории не используется.\n\n"
-
-        "═══════════════════════════════════════\n"
-        "3. РИСКИ БЕЗОПАСНОСТИ\n"
-        "═══════════════════════════════════════\n\n"
-
-        "Используя авторизацию, вы принимаете следующие риски:\n\n"
-
-        "• РАБОТА С АККАУНТОМ\n"
-        "Бот использует ваш профиль авторизации для доступа к корзине и ценам. "
-        "Технически это не отличается от обычного использования браузера. "
-        "Однако при технических сбоях возможны временные ограничения доступа.\n\n"
-
-        "• РИСК УТЕЧКИ ДАННЫХ\n"
-        "При компрометации сервера злоумышленники могут получить доступ к вашим данным авторизации "
-        "и использовать их для несанкционированного доступа к вашему аккаунту Ozon.\n\n"
-
-        "• ТЕХНИЧЕСКИЕ РИСКИ\n"
-        "Бот может работать некорректно, что приведёт к неверному отображению цен, "
-        "пропущенным уведомлениям или другим техническим проблемам.\n\n"
-
-        "═══════════════════════════════════════\n"
-        "4. ОТКАЗ ОТ ОТВЕТСТВЕННОСТИ\n"
-        "═══════════════════════════════════════\n\n"
-
-        "Сервис предоставляется \"как есть\" (as is). Администратор не несёт ответственности за:\n\n"
-
-        "• Технические сбои и ошибки в работе бота\n"
-        "• Неверное отображение цен или пропущенные уведомления\n"
-        "• Действия третьих лиц при компрометации сервера\n"
-        "• Любые косвенные убытки, связанные с использованием сервиса\n\n"
-
-        "ИСПОЛЬЗУЯ ЭТОТ СЕРВИС, ВЫ ДЕЙСТВУЕТЕ НА СВОЙ СТРАХ И РИСК.\n\n"
-
-        "═══════════════════════════════════════\n"
-        "5. ВАШИ ПРАВА (GDPR-совместимость)\n"
-        "═══════════════════════════════════════\n\n"
-
-        "• ПРАВО НА УДАЛЕНИЕ ДАННЫХ\n"
-        "Вы можете в любой момент удалить все данные авторизации через кнопку "
+        "• Номер телефона\n"
+        "• Cookies сессии Ozon и/или Wildberries\n"
+        "• Содержимое корзин, цены товаров и история изменений\n\n"
+        "Данные хранятся на сервере бота. Сервер принадлежит администратору. "
+        "Администратор технически имеет доступ к профилям браузера и cookies.\n\n"
+        "Используя авторизацию, вы принимаете риски технических сбоев, временных "
+        "ограничений доступа, неверного отображения цен и возможной компрометации "
+        "данных при компрометации сервера.\n\n"
+        "Вы можете удалить данные авторизации через кнопку "
         "\"🗑 Удалить мои данные\" в разделе авторизации.\n\n"
-
-        "• ПРАВО НА ОТЗЫВ СОГЛАСИЯ\n"
-        "Вы можете отозвать согласие на обработку данных и прекратить использование бота "
-        "без объяснения причин.\n\n"
-
-        "• ПРАВО НА ИНФОРМАЦИЮ\n"
-        "При удалении данных в логах фиксируется дата и факт отзыва согласия.\n\n"
-
-        "═══════════════════════════════════════\n"
-        "6. РЕКОМЕНДАЦИИ ПО БЕЗОПАСНОСТИ\n"
-        "═══════════════════════════════════════\n\n"
-
-        "• Регулярно проверяйте историю заказов в Ozon\n"
-        "• При подозрении на компрометацию немедленно смените пароль\n"
-        "• Периодически удаляйте данные из бота и авторизуйтесь заново\n\n"
-
-        "═══════════════════════════════════════\n"
-        "7. КОНТАКТЫ\n"
-        "═══════════════════════════════════════\n\n"
-
-        "По вопросам работы бота: @Ivanches1\n\n"
-
-        "═══════════════════════════════════════\n\n"
-
-        "Принимая условия, вы подтверждаете, что:\n"
-        "• Прочитали и поняли все риски\n"
-        "• Действуете добровольно и осознанно\n"
-        "• Принимаете все риски на себя\n"
-        "• Не будете предъявлять претензии администратору\n\n"
-
-        "Дата последнего обновления: 04.06.2026"
+        "Сервис предоставляется \"как есть\". Используя его, вы действуете "
+        "добровольно и принимаете риски на себя.\n\n"
+        "Контакты: @Ivanches1"
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -168,20 +84,42 @@ async def start_authorization(callback: types.CallbackQuery, state: FSMContext):
         ]
     ])
 
-    # Отправляем детальный disclaimer файлом СНАЧАЛА
     from io import BytesIO
-    disclaimer_file = BytesIO(disclaimer_text.encode('utf-8'))
+    disclaimer_file = BytesIO(disclaimer_text.encode("utf-8"))
     disclaimer_file.name = "Пользовательское_соглашение.txt"
 
-    await callback.message.answer_document(
-        document=types.BufferedInputFile(disclaimer_file.getvalue(), filename="Пользовательское_соглашение.txt"),
+    await message.answer_document(
+        document=types.BufferedInputFile(
+            disclaimer_file.getvalue(),
+            filename="Пользовательское_соглашение.txt"
+        ),
         caption="📄 Детальная информация о рисках и условиях использования"
     )
+    await message.answer(agreement_text, reply_markup=keyboard, parse_mode="HTML")
 
-    # ПОТОМ отправляем основное сообщение с кнопками
-    await callback.message.answer(agreement_text, reply_markup=keyboard, parse_mode="HTML")
 
-    # Удаляем старое сообщение с кнопкой "Авторизоваться"
+# Обработчик кнопки "🔐 Авторизация"
+@auth_ozon_router.message(F.text == "🔐 Авторизация")
+async def authorization_button(message: types.Message, state: FSMContext):
+    user = message.from_user
+    logger.info(f"Пользователь {user.id} открыл раздел авторизации")
+    await state.clear()
+
+    auth_request = await get_auth_request(user.id)
+    if auth_request and auth_request.get("agreement_accepted"):
+        await _show_auth_marketplace_menu(message)
+        return
+
+    await _send_common_agreement(message)
+
+
+# Обработчик начала авторизации
+@auth_ozon_router.callback_query(F.data == "auth_start")
+async def start_authorization(callback: types.CallbackQuery, state: FSMContext):
+    user = callback.from_user
+    logger.info(f"Пользователь {user.id} начал процесс авторизации")
+
+    await _send_common_agreement(callback.message)
     await callback.message.delete()
     await callback.answer()
 
@@ -194,10 +132,46 @@ async def accept_agreement(callback: types.CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(
         "✅ Соглашение принято.\n\n"
-        "📱 Отправьте ваш номер телефона в формате +79991234567"
+        "Теперь выберите магазин для авторизации:",
+        reply_markup=_get_auth_menu_keyboard(),
+        parse_mode="HTML"
     )
 
+    await callback.answer()
+
+
+@auth_ozon_router.callback_query(F.data == "auth_ozon_start")
+async def start_ozon_phone_request(callback: types.CallbackQuery, state: FSMContext):
+    """Запрашивает телефон для авторизации Ozon."""
+    user = callback.from_user
+    logger.info(f"Пользователь {user.id} выбрал авторизацию Ozon")
+
+    await state.update_data(auth_marketplace="ozon")
     await state.set_state(LoginState.waiting_for_phone)
+
+    await callback.message.edit_text(
+        "🔐 <b>Авторизация в Ozon</b>\n\n"
+        "📱 Отправьте ваш номер телефона в формате +79991234567",
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@auth_ozon_router.callback_query(F.data == "auth_wb_start")
+async def start_wildberries_phone_request(callback: types.CallbackQuery, state: FSMContext):
+    """Запрашивает телефон для авторизации Wildberries."""
+    user = callback.from_user
+    logger.info(f"Пользователь {user.id} выбрал авторизацию Wildberries")
+
+    await state.update_data(auth_marketplace="wildberries")
+    await state.set_state(LoginState.waiting_for_phone)
+
+    await callback.message.edit_text(
+        "🔐 <b>Авторизация в Wildberries</b>\n\n"
+        "📱 Отправьте ваш номер телефона в формате +79991234567.\n\n"
+        "После этого администратор вручную выполнит вход в Wildberries.",
+        parse_mode="HTML"
+    )
     await callback.answer()
 
 
@@ -231,7 +205,7 @@ async def delete_user_data(callback: types.CallbackQuery):
     confirmation_text = (
         "🗑 <b>Удаление данных авторизации</b>\n\n"
         "Будут удалены:\n"
-        "• Профиль браузера с cookies Ozon\n"
+        "• Профиль браузера с cookies Ozon и Wildberries\n"
         "• Запросы на авторизацию\n"
         "• Согласие на обработку данных\n\n"
         "⚠️ После удаления цены могут отображаться некорректно.\n"
@@ -273,7 +247,7 @@ async def confirm_delete_data(callback: types.CallbackQuery):
         await callback.message.edit_text(
             "✅ <b>Данные успешно удалены</b>\n\n"
             "Удалено:\n"
-            "• Профиль браузера с cookies\n"
+            "• Профиль браузера с cookies Ozon и Wildberries\n"
             "• Запросы на авторизацию\n"
             "• Согласие на обработку данных\n\n"
             "Ваши товары и история цен сохранены.\n\n"
@@ -321,6 +295,8 @@ async def cancel_delete_data(callback: types.CallbackQuery):
 async def process_phone(message: types.Message, state: FSMContext):
     user = message.from_user
     phone = message.text.strip()
+    state_data = await state.get_data()
+    marketplace = state_data.get("auth_marketplace", "ozon")
 
     logger.info(f"Пользователь {user.id} отправил номер телефона: {phone}")
 
@@ -338,6 +314,21 @@ async def process_phone(message: types.Message, state: FSMContext):
         phone=phone,
         username=user.username
     )
+
+    if marketplace == "wildberries":
+        await notify_admin_about_wildberries_auth_request(
+            bot=message.bot,
+            user_id=user.id,
+            username=user.username,
+            phone=phone
+        )
+        await message.answer(
+            "✅ Запрос на авторизацию Wildberries отправлен администратору.\n"
+            "Ожидайте завершения авторизации."
+        )
+        logger.info(f"Запрос на авторизацию Wildberries от пользователя {user.id} сохранён")
+        await state.clear()
+        return
 
     # Уведомляем админа
     await notify_admin_about_auth_request(
@@ -376,6 +367,182 @@ async def notify_admin_about_auth_request(bot, user_id: int, username: str | Non
     await bot.send_message(config.ADMIN_USER_ID, text, reply_markup=keyboard, parse_mode="HTML")
 
 
+async def notify_admin_about_wildberries_auth_request(
+    bot,
+    user_id: int,
+    username: str | None,
+    phone: str
+):
+    """Отправляет админу уведомление о запросе авторизации Wildberries."""
+    text = (
+        f"🔐 <b>Запрос на авторизацию Wildberries</b>\n\n"
+        f"Пользователь: @{username or 'без username'}\n"
+        f"ID: <code>{user_id}</code>\n"
+        f"Телефон: <code>{phone}</code>\n\n"
+        f"✅ Пользователь принял соглашение"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Авторизовать WB", callback_data=f"auth_wb_approve:{user_id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"auth_wb_reject:{user_id}")
+        ]
+    ])
+
+    await bot.send_message(config.ADMIN_USER_ID, text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@auth_ozon_router.callback_query(F.data.startswith("auth_wb_approve:"))
+async def approve_wildberries_authorization(callback: types.CallbackQuery, state: FSMContext):
+    """Открывает браузер Wildberries для ручной авторизации админом."""
+    user = callback.from_user
+
+    if user.id != config.ADMIN_USER_ID:
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    user_id = int(callback.data.split(":")[1])
+    logger.info(f"Админ {user.id} одобрил авторизацию Wildberries для пользователя {user_id}")
+
+    request = await get_auth_request(user_id)
+    if not request:
+        await callback.answer("❌ Запрос не найден", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        f"⏳ Открываю Wildberries для пользователя {user_id}...\n"
+        f"Телефон: {request['phone']}"
+    )
+
+    try:
+        task_queue = getattr(callback.bot, "task_queue", None)
+        if not task_queue:
+            raise RuntimeError("Очередь задач недоступна")
+
+        from scripts.authorize_wildberries_user import start_wildberries_authorization
+
+        auth_context = await start_wildberries_authorization(
+            user_id,
+            request["phone"],
+            callback.bot,
+            task_queue.browser_manager
+        )
+        await state.update_data(
+            auth_user_id=user_id,
+            auth_phone=request["phone"],
+            auth_marketplace="wildberries",
+            auth_context=auth_context
+        )
+        await state.set_state(AuthorizationInProgress.waiting_for_confirmation)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Подтвердить авторизацию WB",
+                    callback_data=f"auth_wb_confirm:{user_id}"
+                )
+            ]
+        ])
+
+        await callback.message.edit_text(
+            f"✅ Браузер Wildberries открыт для пользователя {user_id}\n\n"
+            "Выполните вход вручную: нажмите вход, введите телефон и код "
+            "из уведомления приложения Wildberries.\n"
+            "После успешного входа нажмите кнопку ниже.",
+            reply_markup=keyboard
+        )
+        await callback.answer()
+
+    except Exception as e:
+        logger.error(
+            f"Ошибка авторизации Wildberries для пользователя {user_id}: {e}",
+            exc_info=True
+        )
+        await callback.message.edit_text(f"❌ Ошибка при открытии браузера: {str(e)}")
+        await callback.bot.send_message(
+            user_id,
+            "❌ Не удалось начать авторизацию Wildberries. Обратитесь к администратору."
+        )
+
+
+@auth_ozon_router.callback_query(F.data.startswith("auth_wb_reject:"))
+async def reject_wildberries_authorization(callback: types.CallbackQuery):
+    """Отклоняет запрос авторизации Wildberries."""
+    user = callback.from_user
+
+    if user.id != config.ADMIN_USER_ID:
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    user_id = int(callback.data.split(":")[1])
+    logger.info(f"Админ {user.id} отклонил авторизацию Wildberries для пользователя {user_id}")
+
+    await callback.message.edit_text(f"❌ Запрос Wildberries от пользователя {user_id} отклонён")
+    await callback.bot.send_message(
+        user_id,
+        "❌ Ваш запрос на авторизацию Wildberries отклонён администратором."
+    )
+
+    await update_auth_request_status(user_id, "rejected")
+    await callback.answer()
+
+
+@auth_ozon_router.callback_query(F.data.startswith("auth_wb_confirm:"))
+async def confirm_wildberries_authorization(callback: types.CallbackQuery, state: FSMContext):
+    """Сохраняет профиль после ручной авторизации Wildberries."""
+    user = callback.from_user
+
+    if user.id != config.ADMIN_USER_ID:
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    user_id = int(callback.data.split(":")[1])
+    logger.info(f"Админ {user.id} подтвердил авторизацию Wildberries для пользователя {user_id}")
+
+    data = await state.get_data()
+    auth_context = data.get("auth_context")
+
+    if not auth_context:
+        await callback.answer("❌ Ошибка: контекст авторизации не найден", show_alert=True)
+        await state.clear()
+        return
+
+    try:
+        browser_manager = auth_context.get("browser_manager")
+
+        if browser_manager:
+            await browser_manager.close_user_browser(user_id)
+            logger.info(f"Браузер Wildberries для пользователя {user_id} закрыт")
+
+        await update_auth_request_status(user_id, "approved")
+
+        await callback.bot.send_message(
+            user_id,
+            "✅ <b>Авторизация Wildberries успешно завершена!</b>\n\n"
+            "Ваш профиль сохранён.",
+            parse_mode="HTML"
+        )
+        await callback.message.edit_text(
+            f"✅ Пользователь {user_id} успешно авторизован в Wildberries\n"
+            "Профиль сохранён."
+        )
+        await state.clear()
+        logger.info(f"Авторизация Wildberries пользователя {user_id} завершена")
+
+    except Exception as e:
+        logger.error(
+            f"Ошибка сохранения профиля Wildberries для пользователя {user_id}: {e}",
+            exc_info=True
+        )
+        await callback.message.edit_text(f"❌ Ошибка при сохранении профиля: {str(e)}")
+        await callback.bot.send_message(
+            user_id,
+            "❌ Произошла ошибка при сохранении профиля Wildberries."
+        )
+
+    await callback.answer()
+
+
 # Обработчик одобрения авторизации (админ)
 @auth_ozon_router.callback_query(F.data.startswith("auth_ozon_approve:"))
 async def approve_authorization(callback: types.CallbackQuery, state: FSMContext):
@@ -401,9 +568,18 @@ async def approve_authorization(callback: types.CallbackQuery, state: FSMContext
     )
 
     try:
+        task_queue = getattr(callback.bot, "task_queue", None)
+        if not task_queue:
+            raise RuntimeError("Очередь задач недоступна")
+
         # Запускаем процесс авторизации (браузер остаётся открытым)
         from scripts.authorize_user import authorize_user
-        auth_context = await authorize_user(user_id, request['phone'], callback.bot)
+        auth_context = await authorize_user(
+            user_id,
+            request['phone'],
+            callback.bot,
+            task_queue.browser_manager
+        )
 
         # Сохраняем контекст в FSM для дальнейшей работы
         await state.update_data(
@@ -527,17 +703,11 @@ async def confirm_authorization(callback: types.CallbackQuery, state: FSMContext
         return
 
     try:
-        # Закрываем браузер (профиль автоматически сохранится)
-        browser = auth_context.get('browser')
-        playwright = auth_context.get('playwright')
+        browser_manager = auth_context.get('browser_manager')
 
-        if browser:
-            await browser.close()
-            logger.info(f"Браузер для пользователя {user_id} закрыт, профиль сохранён")
-
-        if playwright:
-            await playwright.stop()
-            logger.info(f"Playwright экземпляр для пользователя {user_id} остановлен")
+        if browser_manager:
+            await browser_manager.close_user_browser(user_id)
+            logger.info(f"Браузер Ozon для пользователя {user_id} закрыт")
 
         # Обновляем статус в БД
         await update_auth_request_status(user_id, "approved")

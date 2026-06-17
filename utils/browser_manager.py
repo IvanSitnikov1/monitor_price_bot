@@ -306,6 +306,25 @@ class BrowserInstance:
         self._current_cart_urls[marketplace] = cart_url
         return page
 
+    async def open_authorization_page(self, url: str, marketplace: str) -> Page:
+        """
+        Открывает страницу авторизации в новой вкладке текущего браузера пользователя.
+
+        Args:
+            url: URL страницы авторизации
+            marketplace: Маркетплейс для логирования и stealth-настроек
+
+        Returns:
+            Новая страница Playwright.
+        """
+        browser, context = await self.ensure_browser()
+        page = await context.new_page()
+        logger.info(f"[User {self.user_id}] Создана вкладка авторизации {marketplace}")
+        await self._prepare_page(page, marketplace)
+        await page.goto(url, timeout=45000, wait_until="domcontentloaded")
+        logger.info(f"[User {self.user_id}] Страница авторизации {marketplace} загружена")
+        return page
+
     async def refresh_cart_page(self, marketplace: str = "ozon") -> Page:
         """
         Обновляет страницу корзины (имитирует F5).
@@ -330,6 +349,39 @@ class BrowserInstance:
         logger.info(f"[User {self.user_id}] Корзина {marketplace} обновлена")
 
         return cart_page
+
+    async def close(self):
+        """Закрывает браузер и очищает состояние экземпляра пользователя."""
+        self._cart_pages.clear()
+        self._current_cart_urls.clear()
+
+        if self._browser:
+            try:
+                await self._browser.close()
+                logger.info(f"[User {self.user_id}] Браузер закрыт")
+            except Exception as e:
+                logger.warning(f"[User {self.user_id}] Не удалось закрыть браузер: {e}")
+            finally:
+                self._browser = None
+                self._context = None
+
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+                logger.info(f"[User {self.user_id}] Playwright остановлен")
+            except Exception as e:
+                logger.warning(f"[User {self.user_id}] Не удалось остановить Playwright: {e}")
+            finally:
+                self._playwright = None
+
+        if self._chrome_process:
+            try:
+                self._chrome_process.terminate()
+                logger.info(f"[User {self.user_id}] Процесс Chrome остановлен")
+            except Exception as e:
+                logger.warning(f"[User {self.user_id}] Не удалось остановить Chrome: {e}")
+            finally:
+                self._chrome_process = None
 
 
 class BrowserManager:
@@ -397,6 +449,21 @@ class BrowserManager:
         instance = self._get_instance(user_id)
         instance.set_cart_page(marketplace, cart_url, page)
 
+    async def close_user_browser(self, user_id: int):
+        """
+        Закрывает активный браузер пользователя и освобождает профиль.
+
+        Args:
+            user_id: ID пользователя
+        """
+        instance = self._instances.pop(user_id, None)
+        if not instance:
+            logger.info(f"Активный браузер для user_id={user_id} не найден")
+            return
+
+        await instance.close()
+        logger.info(f"Активный браузер для user_id={user_id} закрыт")
+
     async def get_cart_page(
         self,
         cart_url: str,
@@ -436,6 +503,26 @@ class BrowserManager:
         """
         instance = self._get_instance(user_id)
         return await instance.open_cart_page(cart_url, marketplace)
+
+    async def open_authorization_page(
+        self,
+        user_id: int,
+        marketplace: str,
+        url: str
+    ) -> Page:
+        """
+        Открывает страницу авторизации пользователя в новой вкладке.
+
+        Args:
+            user_id: ID пользователя
+            marketplace: Маркетплейс
+            url: URL страницы авторизации
+
+        Returns:
+            Новая страница Playwright.
+        """
+        instance = self._get_instance(user_id)
+        return await instance.open_authorization_page(url, marketplace)
 
     async def refresh_cart_page(self, user_id: int, marketplace: str = "ozon") -> Page:
         """
