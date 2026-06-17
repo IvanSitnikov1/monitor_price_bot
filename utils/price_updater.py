@@ -29,7 +29,8 @@ async def update_all_prices(task_queue):
             task_type="update_cart",
             url=cart['cart_url'],
             priority=2,  # Низкий приоритет
-            user_id=cart['user_id']
+            user_id=cart['user_id'],
+            marketplace=cart['marketplace']
         )
 
     logger.info(f"Все корзины добавлены в очередь обновления")

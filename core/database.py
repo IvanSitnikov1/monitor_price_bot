@@ -20,9 +20,18 @@ async def setup_database():
                 username TEXT,
                 first_name TEXT,
                 ozon_cart_url TEXT,
+                wildberries_cart_url TEXT,
                 date_registered TEXT NOT NULL
             )
         """)
+
+        # Миграция: добавляем поле корзины Wildberries для существующих таблиц
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN wildberries_cart_url TEXT")
+            await db.commit()
+        except Exception:
+            # Поле уже существует, игнорируем ошибку
+            pass
 
         await db.execute("""
             CREATE TABLE IF NOT EXISTS products (
@@ -652,35 +661,64 @@ async def register_user(user_id: int, username: str | None, first_name: str | No
         await db.commit()
 
 
-async def save_user_cart(user_id: int, cart_url: str):
+def _get_cart_column(marketplace: Marketplace | str) -> str:
+    """Возвращает имя колонки с корзиной для маркетплейса."""
+    marketplace_value = (
+        marketplace.value if isinstance(marketplace, Marketplace) else marketplace
+    )
+
+    match marketplace_value:
+        case Marketplace.OZON.value:
+            return "ozon_cart_url"
+        case Marketplace.WILDBERRIES.value:
+            return "wildberries_cart_url"
+        case _:
+            raise ValueError(f"Неподдерживаемый маркетплейс корзины: {marketplace_value}")
+
+
+async def save_user_cart(
+    user_id: int,
+    cart_url: str,
+    marketplace: Marketplace | str = Marketplace.OZON
+):
     """
-    Сохраняет или обновляет ссылку на корзину Ozon пользователя.
+    Сохраняет или обновляет ссылку на корзину пользователя.
 
     Args:
         user_id: ID пользователя Telegram
-        cart_url: URL корзины Ozon
+        cart_url: URL корзины
+        marketplace: Маркетплейс корзины
     """
+    cart_column = _get_cart_column(marketplace)
+
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            UPDATE users SET ozon_cart_url = ? WHERE user_id = ?
-        """, (cart_url, user_id))
+        await db.execute(
+            f"UPDATE users SET {cart_column} = ? WHERE user_id = ?",
+            (cart_url, user_id)
+        )
 
         await db.commit()
 
 
-async def get_user_cart(user_id: int) -> str | None:
+async def get_user_cart(
+    user_id: int,
+    marketplace: Marketplace | str = Marketplace.OZON
+) -> str | None:
     """
-    Получает ссылку на корзину Ozon пользователя.
+    Получает ссылку на корзину пользователя.
 
     Args:
         user_id: ID пользователя Telegram
+        marketplace: Маркетплейс корзины
 
     Returns:
-        URL корзины Ozon или None если корзина не сохранена
+        URL корзины или None если корзина не сохранена
     """
+    cart_column = _get_cart_column(marketplace)
+
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "SELECT ozon_cart_url FROM users WHERE user_id = ?",
+            f"SELECT {cart_column} FROM users WHERE user_id = ?",
             (user_id,)
         )
 
@@ -690,20 +728,39 @@ async def get_user_cart(user_id: int) -> str | None:
 
 async def get_all_user_carts() -> list[dict]:
     """
-    Получает список всех пользователей с их корзинами Ozon.
+    Получает список всех пользователей с их корзинами.
 
     Returns:
-        Список словарей с полями: user_id, cart_url
+        Список словарей с полями: user_id, cart_url, marketplace
     """
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
 
-        cursor = await db.execute(
-            "SELECT user_id, ozon_cart_url as cart_url FROM users WHERE ozon_cart_url IS NOT NULL ORDER BY user_id"
-        )
+        cursor = await db.execute("""
+            SELECT user_id, ozon_cart_url, wildberries_cart_url
+            FROM users
+            WHERE ozon_cart_url IS NOT NULL OR wildberries_cart_url IS NOT NULL
+            ORDER BY user_id
+        """)
 
         rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        carts = []
+        for row in rows:
+            if row["ozon_cart_url"]:
+                carts.append({
+                    "user_id": row["user_id"],
+                    "cart_url": row["ozon_cart_url"],
+                    "marketplace": Marketplace.OZON.value
+                })
+
+            if row["wildberries_cart_url"]:
+                carts.append({
+                    "user_id": row["user_id"],
+                    "cart_url": row["wildberries_cart_url"],
+                    "marketplace": Marketplace.WILDBERRIES.value
+                })
+
+        return carts
 
 
 async def broadcast_to_users(bot, message: str):

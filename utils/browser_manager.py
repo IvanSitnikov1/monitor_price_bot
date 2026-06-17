@@ -23,9 +23,9 @@ class BrowserInstance:
         self._playwright = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
-        self._cart_page: Page | None = None
+        self._cart_pages: dict[str, Page] = {}
         self._chrome_process = None
-        self._current_cart_url: str | None = None
+        self._current_cart_urls: dict[str, str] = {}
 
     def _start_chrome_manually(self, user_data_dir: Path, port: int = 9222) -> subprocess.Popen | None:
         """
@@ -162,81 +162,174 @@ class BrowserInstance:
 
         return self._browser, self._context
 
-    async def get_cart_page(self, cart_url: str) -> Page:
+    def has_cart_page(self, marketplace: str, cart_url: str) -> bool:
         """
-        Возвращает страницу корзины. При первом вызове открывает страницу,
-        при последующих — переиспользует существующую.
-        Если URL изменился — переходит на новый URL в той же вкладке.
+        Проверяет, открыта ли вкладка корзины маркетплейса с нужным URL.
 
         Args:
+            marketplace: Маркетплейс корзины
             cart_url: URL корзины
 
         Returns:
-            Страница Playwright с открытой корзиной
+            True если вкладка открыта и URL совпадает
         """
-        browser, context = await self.ensure_browser()
+        return (
+            marketplace in self._cart_pages and
+            not self._cart_pages[marketplace].is_closed() and
+            self._current_cart_urls.get(marketplace) == cart_url
+        )
 
-        # Если страница уже открыта и URL совпадает — переиспользуем
-        if self._cart_page and self._current_cart_url == cart_url:
-            logger.info(f"[User {self.user_id}] Переиспользуем существующую страницу корзины")
-            return self._cart_page
+    def set_cart_page(self, marketplace: str, cart_url: str, page: Page):
+        """
+        Сохраняет актуальную вкладку корзины маркетплейса.
 
-        # Если страница открыта, но URL другой — переходим на новый URL в той же вкладке
-        if self._cart_page and self._current_cart_url != cart_url:
-            logger.info(f"[User {self.user_id}] URL корзины изменился, переходим на новый URL: {cart_url}")
-            await self._cart_page.goto(cart_url, timeout=45000, wait_until='domcontentloaded')
-            logger.info(f"[User {self.user_id}] Переход на новую корзину завершён")
-            self._current_cart_url = cart_url
-            return self._cart_page
+        Args:
+            marketplace: Маркетплейс корзины
+            cart_url: URL корзины
+            page: Страница Playwright
+        """
+        self._cart_pages[marketplace] = page
+        self._current_cart_urls[marketplace] = cart_url
 
-        # Закрываем все лишние вкладки, оставляем только одну
-        if context.pages:
-            page = context.pages[0]
-            logger.info(f"[User {self.user_id}] Используем существующую страницу, всего страниц: {len(context.pages)}")
-            for i, extra_page in enumerate(context.pages[1:], 1):
-                await extra_page.close()
-                logger.info(f"[User {self.user_id}] Закрыта лишняя вкладка {i}")
-        else:
-            page = await context.new_page()
-            logger.info(f"[User {self.user_id}] Создана новая страница")
+    async def _prepare_page(self, page: Page, marketplace: str):
+        """
+        Применяет настройки страницы перед первым использованием.
 
-        # Применяем playwright-stealth
+        Args:
+            page: Страница Playwright
+            marketplace: Маркетплейс корзины
+        """
         stealth = Stealth(
             navigator_languages_override=('ru-RU', 'ru'),
             navigator_platform_override='Linux x86_64',
             navigator_user_agent_override='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
         )
         await stealth.apply_stealth_async(page)
-        logger.info(f"[User {self.user_id}] Stealth-патчи применены")
+        logger.info(f"[User {self.user_id}] Stealth-патчи применены для {marketplace}")
 
         await page.set_viewport_size({"width": 1920, "height": 1080})
 
+    async def get_cart_page(self, cart_url: str, marketplace: str = "ozon") -> Page:
+        """
+        Возвращает страницу корзины. При первом вызове открывает страницу,
+        при последующих — переиспользует существующую.
+        Если URL изменился — переходит на новый URL во вкладке этого маркетплейса.
+
+        Args:
+            cart_url: URL корзины
+            marketplace: Маркетплейс корзины
+
+        Returns:
+            Страница Playwright с открытой корзиной
+        """
+        browser, context = await self.ensure_browser()
+
+        cart_page = self._cart_pages.get(marketplace)
+        current_url = self._current_cart_urls.get(marketplace)
+        if cart_page and cart_page.is_closed():
+            logger.warning(f"[User {self.user_id}] Вкладка {marketplace} закрыта, создаём новую")
+            self._cart_pages.pop(marketplace, None)
+            self._current_cart_urls.pop(marketplace, None)
+            cart_page = None
+            current_url = None
+
+        # Если вкладка маркетплейса уже открыта и URL совпадает — переиспользуем
+        if cart_page and current_url == cart_url:
+            logger.info(
+                f"[User {self.user_id}] Переиспользуем вкладку корзины {marketplace}"
+            )
+            await cart_page.bring_to_front()
+            return cart_page
+
+        # Если вкладка маркетплейса открыта, но URL другой — переходим в ней
+        if cart_page and current_url != cart_url:
+            logger.info(
+                f"[User {self.user_id}] URL корзины {marketplace} изменился: {cart_url}"
+            )
+            await cart_page.bring_to_front()
+            await cart_page.goto(cart_url, timeout=45000, wait_until='domcontentloaded')
+            logger.info(f"[User {self.user_id}] Переход на корзину {marketplace} завершён")
+            self._current_cart_urls[marketplace] = cart_url
+            return cart_page
+
+        page = await context.new_page()
+        logger.info(f"[User {self.user_id}] Создана новая вкладка для {marketplace}")
+        await self._prepare_page(page, marketplace)
+
         # Переходим на страницу корзины
-        logger.info(f"[User {self.user_id}] Первое открытие страницы корзины: {cart_url}")
+        logger.info(f"[User {self.user_id}] Первое открытие корзины {marketplace}: {cart_url}")
         await page.goto(cart_url, timeout=45000, wait_until='domcontentloaded')
-        logger.info(f"[User {self.user_id}] Страница корзины загружена")
+        logger.info(f"[User {self.user_id}] Корзина {marketplace} загружена")
 
-        self._cart_page = page
-        self._current_cart_url = cart_url
+        self._cart_pages[marketplace] = page
+        self._current_cart_urls[marketplace] = cart_url
 
-        return self._cart_page
+        return page
 
-    async def refresh_cart_page(self) -> Page:
+    async def open_cart_page(self, cart_url: str, marketplace: str = "ozon") -> Page:
+        """
+        Открывает актуальный URL корзины во вкладке маркетплейса.
+
+        В отличие от get_cart_page(), всегда выполняет переход по URL, даже если
+        вкладка уже открыта. Это нужно для Wildberries, где URL страницы может
+        измениться после загрузки расшаренной корзины.
+
+        Args:
+            cart_url: URL корзины
+            marketplace: Маркетплейс корзины
+
+        Returns:
+            Страница Playwright с открытой корзиной
+        """
+        browser, context = await self.ensure_browser()
+
+        cart_page = self._cart_pages.get(marketplace)
+        if cart_page and cart_page.is_closed():
+            logger.warning(f"[User {self.user_id}] Вкладка {marketplace} закрыта, создаём новую")
+            self._cart_pages.pop(marketplace, None)
+            self._current_cart_urls.pop(marketplace, None)
+            cart_page = None
+
+        if cart_page:
+            page = cart_page
+            await page.bring_to_front()
+        else:
+            page = await context.new_page()
+            logger.info(f"[User {self.user_id}] Создана новая вкладка для {marketplace}")
+            await self._prepare_page(page, marketplace)
+            self._cart_pages[marketplace] = page
+
+        logger.info(f"[User {self.user_id}] Открываем актуальный URL {marketplace}: {cart_url}")
+        await page.goto(cart_url, timeout=45000, wait_until='domcontentloaded')
+        logger.info(f"[User {self.user_id}] Актуальный URL {marketplace} загружен")
+
+        self._current_cart_urls[marketplace] = cart_url
+        return page
+
+    async def refresh_cart_page(self, marketplace: str = "ozon") -> Page:
         """
         Обновляет страницу корзины (имитирует F5).
         Должна быть вызвана после get_cart_page().
 
+        Args:
+            marketplace: Маркетплейс корзины
+
         Returns:
             Обновленная страница корзины
         """
-        if not self._cart_page:
-            raise RuntimeError("Страница корзины не открыта. Вызовите get_cart_page() сначала.")
+        cart_page = self._cart_pages.get(marketplace)
+        if not cart_page or cart_page.is_closed():
+            raise RuntimeError(
+                f"Страница корзины {marketplace} не открыта. "
+                "Вызовите get_cart_page() сначала."
+            )
 
-        logger.info(f"[User {self.user_id}] Обновление страницы корзины (имитация F5)")
-        await self._cart_page.reload(timeout=45000, wait_until='domcontentloaded')
-        logger.info(f"[User {self.user_id}] Страница корзины обновлена")
+        logger.info(f"[User {self.user_id}] Обновление корзины {marketplace} (имитация F5)")
+        await cart_page.bring_to_front()
+        await cart_page.reload(timeout=45000, wait_until='domcontentloaded')
+        logger.info(f"[User {self.user_id}] Корзина {marketplace} обновлена")
 
-        return self._cart_page
+        return cart_page
 
 
 class BrowserManager:
@@ -274,32 +367,92 @@ class BrowserManager:
 
         return self._instances[user_id]
 
-    async def get_cart_page(self, cart_url: str, user_id: int) -> Page:
+    def has_cart_page(self, user_id: int, marketplace: str, cart_url: str) -> bool:
+        """
+        Проверяет, открыта ли вкладка корзины пользователя.
+
+        Args:
+            user_id: ID пользователя
+            marketplace: Маркетплейс корзины
+            cart_url: URL корзины
+
+        Returns:
+            True если вкладка открыта и URL совпадает
+        """
+        if user_id not in self._instances:
+            return False
+
+        return self._instances[user_id].has_cart_page(marketplace, cart_url)
+
+    def set_cart_page(self, user_id: int, marketplace: str, cart_url: str, page: Page):
+        """
+        Сохраняет актуальную вкладку корзины пользователя.
+
+        Args:
+            user_id: ID пользователя
+            marketplace: Маркетплейс корзины
+            cart_url: URL корзины
+            page: Страница Playwright
+        """
+        instance = self._get_instance(user_id)
+        instance.set_cart_page(marketplace, cart_url, page)
+
+    async def get_cart_page(
+        self,
+        cart_url: str,
+        user_id: int,
+        marketplace: str = "ozon"
+    ) -> Page:
         """
         Возвращает страницу корзины для пользователя.
 
         Args:
             cart_url: URL корзины
             user_id: ID пользователя
+            marketplace: Маркетплейс корзины
 
         Returns:
             Страница Playwright с открытой корзиной
         """
         instance = self._get_instance(user_id)
-        return await instance.get_cart_page(cart_url)
+        return await instance.get_cart_page(cart_url, marketplace)
 
-    async def refresh_cart_page(self, user_id: int) -> Page:
+    async def open_cart_page(
+        self,
+        cart_url: str,
+        user_id: int,
+        marketplace: str = "ozon"
+    ) -> Page:
+        """
+        Открывает актуальный URL корзины пользователя во вкладке маркетплейса.
+
+        Args:
+            cart_url: URL корзины
+            user_id: ID пользователя
+            marketplace: Маркетплейс корзины
+
+        Returns:
+            Страница Playwright с открытой корзиной
+        """
+        instance = self._get_instance(user_id)
+        return await instance.open_cart_page(cart_url, marketplace)
+
+    async def refresh_cart_page(self, user_id: int, marketplace: str = "ozon") -> Page:
         """
         Обновляет страницу корзины для пользователя (имитирует F5).
 
         Args:
             user_id: ID пользователя
+            marketplace: Маркетплейс корзины
 
         Returns:
             Обновленная страница корзины
         """
         if user_id not in self._instances:
-            raise RuntimeError(f"Нет активного браузера для user_id={user_id}. Вызовите get_cart_page() сначала.")
+            raise RuntimeError(
+                f"Нет активного браузера для user_id={user_id}. "
+                "Вызовите get_cart_page() сначала."
+            )
 
         instance = self._instances[user_id]
-        return await instance.refresh_cart_page()
+        return await instance.refresh_cart_page(marketplace)

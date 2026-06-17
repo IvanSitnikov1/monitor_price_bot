@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs, urlparse
+
 from aiogram import F, types, Router
 from aiogram.fsm.context import FSMContext
 
@@ -11,6 +13,23 @@ from loggers import logger
 products_router = Router()
 
 
+def _detect_cart_marketplace(url: str) -> Marketplace | None:
+    """Определяет маркетплейс по ссылке на расшаренную корзину."""
+    parsed_url = urlparse(url)
+    query = parse_qs(parsed_url.query)
+    host = parsed_url.netloc.lower()
+
+    match host:
+        case "www.ozon.ru" | "ozon.ru":
+            if parsed_url.path == "/cart" and query.get("share"):
+                return Marketplace.OZON
+        case "www.wildberries.ru" | "wildberries.ru":
+            if parsed_url.path == "/basket" and query.get("shareId"):
+                return Marketplace.WILDBERRIES
+
+    return None
+
+
 # Обработчик кнопки "Добавить товары"
 @products_router.message(F.text == "Добавить товары")
 async def add_cart(message: types.Message, state: FSMContext):
@@ -21,8 +40,10 @@ async def add_cart(message: types.Message, state: FSMContext):
     await register_user(user.id, user.username, user.first_name)
 
     await message.answer(
-        "Отправь мне ссылку на корзину Ozon.\n"
-        "Формат: https://www.ozon.ru/cart?share=..."
+        "Отправь мне ссылку на корзину Ozon или Wildberries.\n"
+        "Форматы:\n"
+        "https://www.ozon.ru/cart?share=...\n"
+        "https://www.wildberries.ru/basket?shareId=..."
     )
     await state.set_state(AddCart.waiting_for_link)
 
@@ -60,12 +81,16 @@ async def process_cart_link(message: types.Message, state: FSMContext):
     # Регистрируем пользователя перед добавлением товаров (на случай, если его ещё нет)
     await register_user(user.id, user.username, user.first_name)
 
+    marketplace = _detect_cart_marketplace(text)
+
     # Проверяем формат ссылки на корзину
-    if not text.startswith("https://www.ozon.ru/cart?share="):
+    if not marketplace:
         logger.warning(f"Неверный формат ссылки на корзину от пользователя {user.id}")
         await message.answer(
             "❌ Неверный формат ссылки.\n"
-            "Ожидается ссылка вида: https://www.ozon.ru/cart?share=..."
+            "Ожидаются ссылки вида:\n"
+            "https://www.ozon.ru/cart?share=...\n"
+            "https://www.wildberries.ru/basket?shareId=..."
         )
         return
 
@@ -74,7 +99,7 @@ async def process_cart_link(message: types.Message, state: FSMContext):
     await task_queue.add_task(
         task_type="add_cart",
         url=text,
-        marketplace=Marketplace.OZON.value,
+        marketplace=marketplace.value,
         priority=1,  # Высокий приоритет
         user_id=user.id
     )

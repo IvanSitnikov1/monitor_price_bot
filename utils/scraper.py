@@ -288,14 +288,7 @@ async def _check_bot_detection(page):
 
 
 async def _close_product_pages(cart_page):
-    """Закрывает все вкладки, кроме вкладки корзины."""
-    for opened_page in list(cart_page.context.pages):
-        if opened_page != cart_page:
-            try:
-                await opened_page.close()
-            except Exception as e:
-                logger.warning(f"Не удалось закрыть вкладку товара: {e}")
-
+    """Возвращает фокус на вкладку корзины после работы с карточкой товара."""
     try:
         await cart_page.bring_to_front()
     except Exception as e:
@@ -469,9 +462,9 @@ async def _scrape_ozon_cart(
 
     try:
         if is_refresh:
-            page = await browser_manager.refresh_cart_page(user_id)
+            page = await browser_manager.refresh_cart_page(user_id, marketplace="ozon")
         else:
-            page = await browser_manager.get_cart_page(url, user_id)
+            page = await browser_manager.get_cart_page(url, user_id, marketplace="ozon")
     except Exception as e:
         logger.error(f"Ошибка при работе с BrowserManager: {e}")
         return None
@@ -588,6 +581,8 @@ async def _scrape_ozon_cart(
                 # Используем новую страницу после разблокировки
                 # Корзина уже открыта в новой вкладке
                 page = new_page
+                if hasattr(browser_manager, "set_cart_page"):
+                    browser_manager.set_cart_page(user_id, "ozon", url, page)
                 logger.info("Переключились на новую вкладку, корзина уже загружена")
 
                 # Продолжаем парсинг без повторного перехода
@@ -606,6 +601,217 @@ async def _scrape_ozon_cart(
 
         # Если товары найдены или блокировки нет — выходим из цикла
         break
+
+    return products if products else None
+
+
+async def _check_wildberries_block(page) -> bool:
+    """Проверяет явные признаки блокировки Wildberries."""
+    block_selectors = [
+        'text="Проверяем, что вы не робот"',
+        'text="Подтвердите, что вы не робот"',
+        'text="Доступ ограничен"',
+        'text="Access denied"',
+        '[class*="captcha"]',
+        '[id*="captcha"]',
+    ]
+
+    for selector in block_selectors:
+        try:
+            if await page.locator(selector).count() > 0:
+                logger.warning(f"Обнаружена блокировка Wildberries: {selector}")
+                return True
+        except Exception:
+            pass
+
+    try:
+        title = await page.title()
+        if re.search(r"captcha|access denied|доступ ограничен", title, re.IGNORECASE):
+            logger.warning(f"Обнаружена блокировка Wildberries по title: {title}")
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def _normalize_price(price_text: str | None) -> str | None:
+    """Приводит текст цены к формату '123 ₽'."""
+    if not price_text:
+        return None
+
+    match = re.search(r"([\d\s\xa0]+)", price_text)
+    if not match:
+        return None
+
+    price_digits = re.sub(r"[\s\xa0]", "", match.group(1))
+    if not price_digits:
+        return None
+
+    return f"{price_digits} ₽"
+
+
+async def scrape_wildberries_cart(
+    url: str,
+    user_id: int,
+    browser_manager,
+    is_refresh: bool = False,
+    maintenance_callback=None
+) -> list[dict[str, str | None]] | str | None:
+    """
+    Парсит публичную корзину Wildberries без авторизации.
+
+    Args:
+        url: URL корзины (формат: https://www.wildberries.ru/basket?shareId=...)
+        user_id: ID пользователя Telegram
+        browser_manager: Экземпляр BrowserManager для переиспользования браузера
+        is_refresh: Если True, обновляет существующую страницу вместо открытия новой
+        maintenance_callback: Callback для активации maintenance mode при блокировке
+
+    Returns:
+        Список словарей с данными товаров,
+        строка "maintenance_required" при явной блокировке,
+        или None при других ошибках.
+    """
+    logger.info(
+        f"Начало парсинга корзины Wildberries: {url}, "
+        f"user_id: {user_id}, is_refresh: {is_refresh}"
+    )
+
+    try:
+        if hasattr(browser_manager, "open_cart_page"):
+            page = await browser_manager.open_cart_page(
+                url,
+                user_id,
+                marketplace="wildberries"
+            )
+        else:
+            page = await browser_manager.get_cart_page(
+                url,
+                user_id,
+                marketplace="wildberries"
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при работе с BrowserManager для Wildberries: {e}")
+        return None
+
+    await _human_delay()
+    await _human_like_behavior(page)
+
+    try:
+        await page.wait_for_load_state('networkidle', timeout=10000)
+    except PlaywrightTimeoutError:
+        logger.warning("Networkidle timeout Wildberries - продолжаем парсинг")
+
+    Path("debug_data").absolute().mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    screenshot_path = f"debug_data/wildberries_cart_user{user_id}_{timestamp}.png"
+    await page.screenshot(path=screenshot_path)
+    logger.info(f"Скриншот корзины Wildberries сохранён: {screenshot_path}")
+
+    if await _check_wildberries_block(page):
+        logger.error("Обнаружена блокировка Wildberries")
+        if maintenance_callback:
+            await maintenance_callback()
+        return "maintenance_required"
+
+    try:
+        raw_products = await page.evaluate("""
+            () => {
+                const normalize = (value) => (value || '').replace(/\\s+/g, ' ').trim();
+                const absoluteUrl = (value) => {
+                    if (!value) return null;
+                    if (value.startsWith('//')) return `https:${value}`;
+                    if (value.startsWith('/')) return `${location.origin}${value}`;
+                    return value;
+                };
+                const buildProductUrl = (imageUrl, linkUrl) => {
+                    const nmId = imageUrl?.match(/\\/part\\d+\\/(\\d+)\\/images\\//)?.[1];
+                    if (nmId) {
+                        return `https://www.wildberries.ru/catalog/${nmId}/detail.aspx`;
+                    }
+
+                    return absoluteUrl(linkUrl);
+                };
+
+                const shareContent = document.querySelector('.popup-share-content');
+                const shareProducts = shareContent?.querySelector('.popup-share-products');
+                if (!shareProducts) {
+                    return [];
+                }
+
+                const nodes = Array.from(
+                    shareProducts.querySelectorAll('[class^="productWrap--"]')
+                );
+                const products = [];
+                const seen = new Set();
+
+                for (const node of nodes) {
+                    const nameNode = node.querySelector(
+                        '[class^="productDescriptionName--"]'
+                    );
+                    const lowerPriceNode = node.querySelector(
+                        '[class^="productPriceLowerPrice--"]'
+                    );
+                    const oldPriceNode = node.querySelector(
+                        '[class^="productPriceOldPrice--"]'
+                    );
+                    const linkNode = node.querySelector('a[href*="/catalog/"]');
+                    const imageNode = node.querySelector('img');
+
+                    const name = normalize(nameNode?.textContent);
+                    const priceText = normalize(
+                        lowerPriceNode?.textContent || oldPriceNode?.textContent
+                    );
+                    const imageUrl = absoluteUrl(
+                        imageNode?.getAttribute('data-src-pb') ||
+                        imageNode?.getAttribute('src') ||
+                        imageNode?.getAttribute('data-src') ||
+                        imageNode?.getAttribute('srcset')?.split(' ')[0]
+                    );
+                    const url = buildProductUrl(imageUrl, linkNode?.getAttribute('href'));
+
+                    if (!name || !priceText || name.length < 5) continue;
+
+                    const key = `${name}|${priceText}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+
+                    products.push({
+                        name,
+                        price: priceText,
+                        url,
+                        image_url: imageUrl
+                    });
+                }
+
+                return products;
+            }
+        """)
+    except Exception as e:
+        logger.error(f"Ошибка при извлечении товаров Wildberries: {e}")
+        return None
+
+    products = []
+    for index, product in enumerate(raw_products, 1):
+        name = product.get("name")
+        price = _normalize_price(product.get("price"))
+
+        if not name or not price:
+            logger.warning(f"Товар Wildberries {index}: пропущен (name={name}, price={price})")
+            continue
+
+        normalized_product = {
+            "name": name,
+            "price": price,
+            "url": _normalize_image_url(product.get("url")),
+            "image_url": _normalize_image_url(product.get("image_url")),
+        }
+        products.append(normalized_product)
+        logger.info(
+            f"Товар Wildberries {index}: {name} - {price} - "
+            f"{normalized_product.get('url')} - {normalized_product.get('image_url')}"
+        )
 
     return products if products else None
 

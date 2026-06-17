@@ -8,7 +8,11 @@ from pathlib import Path
 from datetime import datetime
 from typing import Literal
 
-from utils.scraper import scrape_ozon_cart, scrape_ozon_cart_with_urls
+from utils.scraper import (
+    scrape_ozon_cart,
+    scrape_ozon_cart_with_urls,
+    scrape_wildberries_cart,
+)
 from core.database import mark_product_not_in_cart, mark_product_in_cart
 from utils.browser_manager import BrowserManager
 from core.models import Marketplace
@@ -153,10 +157,11 @@ class TaskQueue:
 
                 # Проверяем персональный режим техработ для пользователя
                 user_id = task.get("user_id")
-                if user_id and maintenance_mode.is_active(user_id):
+                task_marketplace = task.get("marketplace")
+                if user_id and maintenance_mode.is_active(user_id, task_marketplace):
                     logger.warning(
                         f"Пользователь {user_id} в режиме техработ, задача пропущена. "
-                        f"Тип: {task['type']}"
+                        f"Тип: {task['type']}, маркетплейс={task_marketplace}"
                     )
                     await asyncio.sleep(1)
                     continue
@@ -226,21 +231,46 @@ class TaskQueue:
             # Проверяем, есть ли уже активный браузер для этого пользователя
             # И совпадает ли URL корзины с текущим открытым
             is_refresh = False
-            if user_id in self.browser_manager._instances:
-                instance = self.browser_manager._instances[user_id]
-                if instance._cart_page is not None and instance._current_cart_url == cart_url:
-                    is_refresh = True
-                    logger.info(f"URL корзины совпадает, используем refresh")
-                else:
-                    logger.info(f"URL корзины изменился или страница не открыта, открываем новую")
+            if (
+                marketplace == Marketplace.OZON.value and
+                self.browser_manager.has_cart_page(user_id, marketplace, cart_url)
+            ):
+                is_refresh = True
+                logger.info(f"URL корзины {marketplace} совпадает, используем refresh")
+            elif marketplace == Marketplace.WILDBERRIES.value:
+                logger.info("Для Wildberries открываем сохранённый URL корзины заново")
+            else:
+                logger.info(
+                    f"URL корзины {marketplace} изменился или вкладка не открыта, "
+                    "открываем новую"
+                )
 
-            cart_products = await scrape_ozon_cart_with_urls(
-                cart_url,
-                user_id=user_id,
-                browser_manager=self.browser_manager,
-                is_refresh=is_refresh,
-                maintenance_callback=lambda: self._activate_maintenance_mode(user_id)
-            )
+            match marketplace:
+                case Marketplace.OZON.value:
+                    cart_products = await scrape_ozon_cart_with_urls(
+                        cart_url,
+                        user_id=user_id,
+                        browser_manager=self.browser_manager,
+                        is_refresh=is_refresh,
+                        maintenance_callback=lambda: self._activate_maintenance_mode(
+                            user_id,
+                            marketplace
+                        )
+                    )
+                case Marketplace.WILDBERRIES.value:
+                    cart_products = await scrape_wildberries_cart(
+                        cart_url,
+                        user_id=user_id,
+                        browser_manager=self.browser_manager,
+                        is_refresh=is_refresh,
+                        maintenance_callback=lambda: self._activate_maintenance_mode(
+                            user_id,
+                            marketplace
+                        )
+                    )
+                case _:
+                    logger.error(f"Неподдерживаемый маркетплейс корзины: {marketplace}")
+                    return
 
             # Проверяем на специальный маркер maintenance_required
             if cart_products == "maintenance_required":
@@ -257,12 +287,19 @@ class TaskQueue:
 
         # Если все 3 попытки провалились
         if not cart_products:
-            logger.error(f"Все 3 попытки парсинга корзины провалились для {cart_url} пользователя {user_id}")
-            # Maintenance mode уже активирован внутри scrape_ozon_cart через callback
+            logger.error(
+                f"Все 3 попытки парсинга корзины провалились для {cart_url} "
+                f"пользователя {user_id}"
+            )
+            # Без явной блокировки maintenance mode не активируем.
             return
 
         # Получаем текущие товары пользователя (включая удалённые из корзины)
-        current_products = await get_all_products(user_id, in_cart_only=False)
+        current_products = await get_all_products(
+            user_id,
+            marketplace=marketplace,
+            in_cart_only=False
+        )
 
         # Создаём словари для быстрого поиска
         current_products_dict = {p["name"]: p for p in current_products}
@@ -284,12 +321,12 @@ class TaskQueue:
             product_name = cart_product["name"]
 
             # Извлекаем число из строки цены
-            price_match = re.search(r'(\d+)', cart_product["price"])
+            price_match = re.search(r'([\d\s\xa0]+)', cart_product["price"])
             if not price_match:
                 logger.warning(f"Не удалось распарсить цену: {cart_product['price']}")
                 continue
 
-            new_price = int(price_match.group(1))
+            new_price = int(re.sub(r'[\s\xa0]', '', price_match.group(1)))
             product_url = cart_product.get("url")
             product_image_url = cart_product.get("image_url")
 
@@ -368,15 +405,19 @@ class TaskQueue:
         logger.info(f"Корзина успешно обработана для пользователя {user_id}")
 
         # Сохраняем ссылку на корзину в БД
-        await save_user_cart(user_id, cart_url)
+        await save_user_cart(user_id, cart_url, marketplace_enum)
         logger.info(f"Ссылка на корзину сохранена для пользователя {user_id}")
 
     async def _handle_update_cart(self, task: dict):
         """Обрабатывает задачу обновления цен через корзину"""
         user_id = task["user_id"]
         cart_url = task["url"]
+        marketplace = task.get("marketplace", Marketplace.OZON.value)
 
-        logger.info(f"Начало обновления цен через корзину для пользователя {user_id}")
+        logger.info(
+            f"Начало обновления цен через корзину для пользователя {user_id}, "
+            f"маркетплейс={marketplace}"
+        )
 
         # Парсим корзину (до 3 попыток) с использованием BrowserManager
         cart_products = None
@@ -387,21 +428,46 @@ class TaskQueue:
             # Проверяем, есть ли уже активный браузер для этого пользователя
             # И совпадает ли URL корзины с текущим открытым
             is_refresh = False
-            if user_id in self.browser_manager._instances:
-                instance = self.browser_manager._instances[user_id]
-                if instance._cart_page is not None and instance._current_cart_url == cart_url:
-                    is_refresh = True
-                    logger.info(f"URL корзины совпадает, используем refresh")
-                else:
-                    logger.info(f"URL корзины изменился или страница не открыта, открываем новую")
+            if (
+                marketplace == Marketplace.OZON.value and
+                self.browser_manager.has_cart_page(user_id, marketplace, cart_url)
+            ):
+                is_refresh = True
+                logger.info(f"URL корзины {marketplace} совпадает, используем refresh")
+            elif marketplace == Marketplace.WILDBERRIES.value:
+                logger.info("Для Wildberries открываем сохранённый URL корзины заново")
+            else:
+                logger.info(
+                    f"URL корзины {marketplace} изменился или вкладка не открыта, "
+                    "открываем новую"
+                )
 
-            cart_products = await scrape_ozon_cart(
-                cart_url,
-                user_id=user_id,
-                browser_manager=self.browser_manager,
-                is_refresh=is_refresh,
-                maintenance_callback=lambda: self._activate_maintenance_mode(user_id)
-            )
+            match marketplace:
+                case Marketplace.OZON.value:
+                    cart_products = await scrape_ozon_cart(
+                        cart_url,
+                        user_id=user_id,
+                        browser_manager=self.browser_manager,
+                        is_refresh=is_refresh,
+                        maintenance_callback=lambda: self._activate_maintenance_mode(
+                            user_id,
+                            marketplace
+                        )
+                    )
+                case Marketplace.WILDBERRIES.value:
+                    cart_products = await scrape_wildberries_cart(
+                        cart_url,
+                        user_id=user_id,
+                        browser_manager=self.browser_manager,
+                        is_refresh=is_refresh,
+                        maintenance_callback=lambda: self._activate_maintenance_mode(
+                            user_id,
+                            marketplace
+                        )
+                    )
+                case _:
+                    logger.error(f"Неподдерживаемый маркетплейс корзины: {marketplace}")
+                    return
 
             # Проверяем на специальный маркер maintenance_required
             if cart_products == "maintenance_required":
@@ -418,12 +484,19 @@ class TaskQueue:
 
         # Если все 3 попытки провалились
         if not cart_products:
-            logger.error(f"Все 3 попытки парсинга корзины провалились для {cart_url} пользователя {user_id}")
-            # Maintenance mode уже активирован внутри scrape_ozon_cart через callback
+            logger.error(
+                f"Все 3 попытки парсинга корзины провалились для {cart_url} "
+                f"пользователя {user_id}"
+            )
+            # Без явной блокировки maintenance mode не активируем.
             return
 
         # Получаем текущие товары пользователя из БД (включая удалённые из корзины)
-        current_products = await get_all_products(user_id, in_cart_only=False)
+        current_products = await get_all_products(
+            user_id,
+            marketplace=marketplace,
+            in_cart_only=False
+        )
 
         # Создаём словари для быстрого поиска
         current_products_dict = {p["name"]: p for p in current_products}
@@ -451,12 +524,12 @@ class TaskQueue:
                     logger.info(f"Восстановлен товар в корзине: {product_name}")
 
                 # Извлекаем число из строки цены
-                price_match = re.search(r'(\d+)', cart_product["price"])
+                price_match = re.search(r'([\d\s\xa0]+)', cart_product["price"])
                 if not price_match:
                     logger.warning(f"Не удалось распарсить цену: {cart_product['price']}")
                     continue
 
-                new_price = int(price_match.group(1))
+                new_price = int(re.sub(r'[\s\xa0]', '', price_match.group(1)))
 
                 # Получаем минимальную цену до обновления
                 min_price_before = await get_min_price(product_id)
@@ -486,7 +559,10 @@ class TaskQueue:
                 removed_count += 1
                 logger.info(f"Товар помечен как удалённый из корзины: {product['name']}")
 
-        logger.info(f"Обновлено цен: {updated_count}, восстановлено: {restored_count}, удалено: {removed_count}")
+        logger.info(
+            f"Обновлено цен: {updated_count}, восстановлено: {restored_count}, "
+            f"удалено: {removed_count}"
+        )
 
         # Отправляем уведомления о снижении цен
         if price_drops:
@@ -507,24 +583,33 @@ class TaskQueue:
 
         logger.info(f"Обновление цен завершено для пользователя {user_id}")
 
-    async def _activate_maintenance_mode(self, user_id: int):
+    async def _activate_maintenance_mode(
+        self,
+        user_id: int,
+        marketplace: str | None = None
+    ):
         """
         Активирует режим техработ для конкретного пользователя.
 
         Args:
             user_id: ID пользователя
+            marketplace: Маркетплейс, для которого обнаружена блокировка
         """
-        logger.warning(f"Активация режима техработ для пользователя {user_id} после неудачного парсинга")
+        logger.warning(
+            f"Активация режима техработ для пользователя {user_id}, "
+            f"маркетплейс={marketplace}, после обнаружения блокировки"
+        )
 
         # Включаем режим техработ для пользователя
-        maintenance_mode.enable(user_id)
+        maintenance_mode.enable(user_id, marketplace)
 
         # Отправляем уведомление пользователю
         try:
             await self.bot.send_message(
                 user_id,
                 "🚧 Обнаружена проблема при обновлении цен.\n"
-                "Обновления для вашего профиля временно приостановлены.\n"
+                f"Маркетплейс: {marketplace or 'не определён'}.\n"
+                "Обновления для этого маркетплейса временно приостановлены.\n"
                 "Администратор решит проблему в ближайшее время."
             )
         except Exception as e:
@@ -532,11 +617,14 @@ class TaskQueue:
 
         # Отправляем уведомление администратору
         try:
+            marketplace_suffix = f"_{marketplace}" if marketplace else ""
             await self.bot.send_message(
                 config.ADMIN_USER_ID,
                 f"🚧 Активирован maintenance mode для пользователя {user_id}\n"
-                f"Причина: ошибка при парсинге корзины (капча/блокировка)\n\n"
-                f"Для разблокировки удалите файл: maintenance_flags/maintenance_{user_id}.flag"
+                f"Маркетплейс: {marketplace or 'не определён'}\n"
+                f"Причина: обнаружена блокировка при парсинге корзины\n\n"
+                f"Для разблокировки удалите файл: "
+                f"maintenance_flags/maintenance_{user_id}{marketplace_suffix}.flag"
             )
         except Exception as e:
             logger.error(f"Не удалось отправить уведомление администратору: {e}")
