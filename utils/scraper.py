@@ -306,35 +306,52 @@ async def _extract_product_url_from_block(page, block, product_index: int) -> st
     """
     Открывает товар из блока корзины и возвращает URL страницы товара.
 
-    Сначала пробует Ctrl+Click, чтобы оставить корзину открытой. Если товар открылся
-    в текущей вкладке, забирает URL и возвращается назад в корзину.
+    Использует обычный клик после короткой человеческой паузы и движения мыши.
+    Если товар открылся в текущей вкладке, URL берется оттуда и выполняется возврат
+    назад в корзину.
     """
     click_target = block.locator('span.tsCompact400Large').first
     original_url = page.url
     product_page = None
 
     try:
-        async with page.context.expect_page(timeout=7000) as page_info:
-            await click_target.click(timeout=5000, modifiers=["Control"])
+        await click_target.scroll_into_view_if_needed(timeout=5000)
+        await asyncio.sleep(random.uniform(0.4, 1.1))
+        box = await click_target.bounding_box()
+        if not box:
+            logger.warning(f"Товар {product_index + 1}: не удалось определить позицию элемента")
+            return None
 
-        product_page = await page_info.value
-        try:
-            await product_page.wait_for_load_state('domcontentloaded', timeout=30000)
-        except PlaywrightTimeoutError:
-            logger.warning(f"Товар {product_index + 1}: timeout загрузки страницы товара")
-
-        product_url = product_page.url
-        logger.info(f"URL товара {product_index + 1}: {product_url}")
-        return product_url
-
-    except PlaywrightTimeoutError:
-        logger.warning(
-            f"Товар {product_index + 1}: новая вкладка не открылась, пробуем текущую вкладку"
+        await page.mouse.move(
+            box["x"] + random.uniform(3, 12),
+            box["y"] + random.uniform(3, 12),
         )
+        await asyncio.sleep(random.uniform(0.2, 0.6))
+
+        popup_task = asyncio.create_task(page.wait_for_event("popup", timeout=8000))
+        await click_target.click(timeout=5000)
 
         try:
-            await click_target.click(timeout=5000)
+            product_page = await popup_task
+            try:
+                await product_page.wait_for_load_state('domcontentloaded', timeout=30000)
+            except PlaywrightTimeoutError:
+                logger.warning(f"Товар {product_index + 1}: timeout загрузки страницы товара")
+
+            await asyncio.sleep(random.uniform(1.8, 4.2))
+            product_url = product_page.url
+            logger.info(f"URL товара {product_index + 1}: {product_url}")
+            return product_url
+        except Exception:
+            if not popup_task.done():
+                popup_task.cancel()
+            logger.warning(
+                f"Товар {product_index + 1}: popup не появился, проверяем навигацию в текущей вкладке"
+            )
+
+        try:
             await page.wait_for_load_state('domcontentloaded', timeout=30000)
+            await asyncio.sleep(random.uniform(1.8, 4.2))
 
             if page.url == original_url:
                 logger.warning(f"Товар {product_index + 1}: URL не изменился после клика")
@@ -355,10 +372,6 @@ async def _extract_product_url_from_block(page, block, product_index: int) -> st
             logger.warning(f"Не удалось получить URL товара {product_index + 1}: {e}")
             return None
 
-    except Exception as e:
-        logger.warning(f"Ошибка при открытии товара {product_index + 1}: {e}")
-        return None
-
     finally:
         if product_page:
             try:
@@ -375,11 +388,64 @@ async def _extract_product_url_from_block(page, block, product_index: int) -> st
         await _close_product_pages(page)
 
 
+def _normalize_image_url(image_url: str | None) -> str | None:
+    """Приводит URL изображения к абсолютному виду."""
+    if not image_url:
+        return None
+
+    image_url = image_url.strip()
+    if not image_url:
+        return None
+
+    if "," in image_url:
+        image_url = image_url.split(",")[0].strip()
+
+    if " " in image_url:
+        image_url = image_url.split(" ")[0].strip()
+
+    if image_url.startswith("//"):
+        return f"https:{image_url}"
+
+    return image_url
+
+
+async def _extract_product_image_url_from_block(block, product_index: int) -> str | None:
+    """Извлекает URL миниатюры товара из блока корзины."""
+    image = block.locator("img").first
+
+    try:
+        if await image.count() == 0:
+            logger.warning(f"Товар {product_index + 1}: изображение не найдено")
+            return None
+
+        for attribute in ("src", "data-src", "srcset", "data-srcset"):
+            image_url = _normalize_image_url(await image.get_attribute(attribute))
+            if image_url:
+                logger.info(f"Изображение товара {product_index + 1}: {image_url}")
+                return image_url
+
+    except Exception as e:
+        logger.warning(f"Не удалось извлечь изображение товара {product_index + 1}: {e}")
+
+    return None
+
+
+async def _extract_product_details_from_block(page, block, product_index: int) -> dict[str, str | None]:
+    """Извлекает дополнительные данные товара при добавлении корзины."""
+    image_url = await _extract_product_image_url_from_block(block, product_index)
+    product_url = await _extract_product_url_from_block(page, block, product_index)
+
+    return {
+        "url": product_url,
+        "image_url": image_url,
+    }
+
+
 async def _scrape_ozon_cart(
     url: str,
     user_id: int,
     browser_manager,
-    product_url_extractor=None,
+    product_details_extractor=None,
     is_refresh: bool = False,
     maintenance_callback=None
 ) -> list[dict[str, str | None]] | str | None:
@@ -390,12 +456,12 @@ async def _scrape_ozon_cart(
         url: URL корзины (формат: https://www.ozon.ru/cart?share=...)
         user_id: ID пользователя Telegram
         browser_manager: Экземпляр BrowserManager для переиспользования браузера
-        product_url_extractor: Функция для извлечения URL товара из блока корзины
+        product_details_extractor: Функция для извлечения дополнительных данных товара
         is_refresh: Если True, обновляет существующую страницу вместо открытия новой
         maintenance_callback: Callback для активации maintenance mode при неудачной разблокировке
 
     Returns:
-        Список словарей с данными товаров [{"name": "...", "price": "...", "url": "..."}],
+        Список словарей с данными товаров,
         строка "maintenance_required" при неудачной разблокировке,
         или None при других ошибках
     """
@@ -475,12 +541,15 @@ async def _scrape_ozon_cart(
                     price = None
 
                 if name and price:
-                    product_url = None
-                    if product_url_extractor:
-                        product_url = await product_url_extractor(page, block, i)
+                    product = {"name": name, "price": price}
+                    if product_details_extractor:
+                        product.update(await product_details_extractor(page, block, i))
 
-                    products.append({"name": name, "price": price, "url": product_url})
-                    logger.info(f"Товар {i+1}: {name} - {price} - {product_url}")
+                    products.append(product)
+                    logger.info(
+                        f"Товар {i+1}: {name} - {price} - "
+                        f"{product.get('url')} - {product.get('image_url')}"
+                    )
                 else:
                     logger.warning(f"Товар {i+1}: пропущен (name={name}, price={price})")
 
@@ -553,7 +622,7 @@ async def scrape_ozon_cart_with_urls(
         url=url,
         user_id=user_id,
         browser_manager=browser_manager,
-        product_url_extractor=_extract_product_url_from_block,
+        product_details_extractor=_extract_product_details_from_block,
         is_refresh=is_refresh,
         maintenance_callback=maintenance_callback
     )

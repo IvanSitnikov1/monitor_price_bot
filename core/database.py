@@ -30,6 +30,8 @@ async def setup_database():
                 user_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 url TEXT,
+                image_url TEXT,
+                image_path TEXT,
                 marketplace TEXT NOT NULL DEFAULT 'ozon',
                 in_cart INTEGER NOT NULL DEFAULT 1,
                 date_added TEXT NOT NULL,
@@ -40,6 +42,22 @@ async def setup_database():
         # Миграция: добавляем поле in_cart для существующих таблиц
         try:
             await db.execute("ALTER TABLE products ADD COLUMN in_cart INTEGER NOT NULL DEFAULT 1")
+            await db.commit()
+        except Exception:
+            # Поле уже существует, игнорируем ошибку
+            pass
+
+        # Миграция: добавляем поле image_url для существующих таблиц
+        try:
+            await db.execute("ALTER TABLE products ADD COLUMN image_url TEXT")
+            await db.commit()
+        except Exception:
+            # Поле уже существует, игнорируем ошибку
+            pass
+
+        # Миграция: добавляем поле image_path для существующих таблиц
+        try:
+            await db.execute("ALTER TABLE products ADD COLUMN image_path TEXT")
             await db.commit()
         except Exception:
             # Поле уже существует, игнорируем ошибку
@@ -83,7 +101,9 @@ async def add_product(
     price: int,
     user_id: int,
     marketplace: Marketplace,
-    url: str | None = None
+    url: str | None = None,
+    image_url: str | None = None,
+    image_path: str | None = None
 ) -> int | None:
     """
     Добавляет новый товар для пользователя.
@@ -94,6 +114,8 @@ async def add_product(
         user_id: ID пользователя Telegram
         marketplace: Маркетплейс товара
         url: Ссылка на страницу товара
+        image_url: Ссылка на изображение товара
+        image_path: Локальный путь к изображению товара
 
     Returns:
         ID добавленного товара
@@ -107,10 +129,10 @@ async def add_product(
         # Создаем новый товар
         cursor = await db.execute(
             """
-            INSERT INTO products (user_id, name, url, marketplace, date_added)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO products (user_id, name, url, image_url, image_path, marketplace, date_added)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, name, url, marketplace.value, date_now)
+            (user_id, name, url, image_url, image_path, marketplace.value, date_now)
         )
         product_id = cursor.lastrowid
 
@@ -144,6 +166,8 @@ async def get_all_products(user_id: int, marketplace: str | None = None, in_cart
                 p.id,
                 p.name,
                 p.url,
+                p.image_url,
+                p.image_path,
                 p.marketplace,
                 p.in_cart,
                 ph.price as current_price
@@ -194,6 +218,8 @@ async def get_product_details(product_id: int, user_id: int) -> dict | None:
                 p.id,
                 p.name,
                 p.url,
+                p.image_url,
+                p.image_path,
                 p.date_added,
                 (SELECT price FROM price_history
                  WHERE product_id = p.id
@@ -225,7 +251,7 @@ async def get_all_products_for_update() -> list[dict]:
         db.row_factory = aiosqlite.Row
 
         cursor = await db.execute("""
-            SELECT id, user_id, name, url, marketplace
+            SELECT id, user_id, name, url, image_url, image_path, marketplace
             FROM products
             ORDER BY id
         """)
@@ -300,6 +326,46 @@ async def update_product_url(product_id: int, url: str | None):
         await db.commit()
 
 
+async def update_product_image_url(product_id: int, image_url: str | None):
+    """
+    Обновляет ссылку на изображение товара.
+
+    Args:
+        product_id: ID товара
+        image_url: Ссылка на изображение товара
+    """
+    if not image_url:
+        return
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE products SET image_url = ? WHERE id = ?",
+            (image_url, product_id)
+        )
+
+        await db.commit()
+
+
+async def update_product_image_path(product_id: int, image_path: str | None):
+    """
+    Обновляет локальный путь к изображению товара.
+
+    Args:
+        product_id: ID товара
+        image_path: Локальный путь к изображению товара
+    """
+    if not image_path:
+        return
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE products SET image_path = ? WHERE id = ?",
+            (image_path, product_id)
+        )
+
+        await db.commit()
+
+
 async def mark_product_not_in_cart(product_id: int) -> bool:
     """
     Помечает товар как удалённый из корзины (но сохраняет в БД с историей).
@@ -361,7 +427,11 @@ async def get_product_by_name(user_id: int, name: str) -> dict | None:
         db.row_factory = aiosqlite.Row
 
         cursor = await db.execute(
-            "SELECT id, name, url, marketplace, in_cart FROM products WHERE user_id = ? AND name = ?",
+            """
+            SELECT id, name, url, image_url, image_path, marketplace, in_cart
+            FROM products
+            WHERE user_id = ? AND name = ?
+            """,
             (user_id, name)
         )
 

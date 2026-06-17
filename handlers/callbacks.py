@@ -1,6 +1,8 @@
 from datetime import datetime
+from pathlib import Path
 
 from aiogram import F, types, Router
+from aiogram.types import FSInputFile
 
 from keyboards.inline import get_products_keyboard, get_product_detail_keyboard
 from core.database import (
@@ -45,10 +47,26 @@ async def show_product_details(callback: types.CallbackQuery):
     if product.get("url"):
         text += f"\n\n🔗 Ссылка на товар:\n{product['url']}"
 
-    await callback.message.answer(
-        text,
-        reply_markup=get_product_detail_keyboard(product_id)
-    )
+    reply_markup = get_product_detail_keyboard(product_id)
+
+    image_path = product.get("image_path")
+    if image_path:
+        local_path = Path(image_path)
+        if local_path.exists():
+            try:
+                await callback.message.answer_photo(
+                    photo=FSInputFile(local_path),
+                    caption=text,
+                    reply_markup=reply_markup
+                )
+                await callback.answer()
+                return
+            except Exception as e:
+                logger.warning(f"Не удалось отправить локальное изображение товара {product_id}: {e}")
+        else:
+            logger.warning(f"Локальный файл изображения не найден: {local_path}")
+
+    await callback.message.answer(text, reply_markup=reply_markup)
     await callback.answer()
 
 

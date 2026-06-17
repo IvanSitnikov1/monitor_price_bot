@@ -19,6 +19,16 @@ class Product(BaseModel):
         description="Ссылка на страницу товара",
         examples=["https://www.ozon.ru/product/example-123456789/"]
     )
+    image_url: str | None = Field(
+        None,
+        description="Ссылка на изображение товара",
+        examples=["https://cdn1.ozone.ru/s3/multimedia-example.jpg"]
+    )
+    image_path: str | None = Field(
+        None,
+        description="Локальный путь к изображению товара",
+        examples=["product_images/1189033386/1.jpg"]
+    )
     marketplace: Marketplace = Field(
         description="Маркетплейс товара",
         examples=["ozon"]

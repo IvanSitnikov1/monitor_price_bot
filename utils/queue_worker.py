@@ -1,4 +1,6 @@
 import asyncio
+import aiohttp
+import mimetypes
 import json
 import random
 import re
@@ -14,6 +16,8 @@ from core.database import (
     add_product,
     update_product_price,
     update_product_url,
+    update_product_image_url,
+    update_product_image_path,
     get_min_price,
     get_all_products,
     save_user_cart,
@@ -21,6 +25,39 @@ from core.database import (
 from utils.maintenance import maintenance_mode
 from loggers import logger
 from config import config
+
+
+async def _download_product_image(image_url: str | None, user_id: int, product_id: int) -> str | None:
+    """Скачивает изображение товара на сервер и возвращает локальный путь."""
+    if not image_url:
+        return None
+
+    images_dir = Path("product_images") / str(user_id)
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    timeout = aiohttp.ClientTimeout(total=30)
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    try:
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+            async with session.get(image_url) as response:
+                if response.status != 200:
+                    logger.warning(
+                        f"Не удалось скачать изображение товара {product_id}: "
+                        f"HTTP {response.status}"
+                    )
+                    return None
+
+                content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+                suffix = mimetypes.guess_extension(content_type) or ".jpg"
+                image_path = images_dir / f"{product_id}{suffix}"
+                image_path.write_bytes(await response.read())
+                logger.info(f"Изображение товара {product_id} сохранено: {image_path}")
+                return str(image_path)
+
+    except Exception as e:
+        logger.warning(f"Не удалось скачать изображение товара {product_id}: {e}")
+        return None
 
 
 class TaskQueue:
@@ -254,6 +291,7 @@ class TaskQueue:
 
             new_price = int(price_match.group(1))
             product_url = cart_product.get("url")
+            product_image_url = cart_product.get("image_url")
 
             # Если товар уже есть в БД
             if product_name in current_products_dict:
@@ -269,6 +307,10 @@ class TaskQueue:
                 # Обновляем цену
                 await update_product_price(product_id, new_price)
                 await update_product_url(product_id, product_url)
+                await update_product_image_url(product_id, product_image_url)
+
+                image_path = await _download_product_image(product_image_url, user_id, product_id)
+                await update_product_image_path(product_id, image_path)
                 updated_count += 1
                 logger.info(f"Цена обновлена для {product_name}: {new_price} ₽")
 
@@ -279,10 +321,13 @@ class TaskQueue:
                     price=new_price,
                     user_id=user_id,
                     marketplace=marketplace_enum,
-                    url=product_url
+                    url=product_url,
+                    image_url=product_image_url
                 )
 
                 if product_id:
+                    image_path = await _download_product_image(product_image_url, user_id, product_id)
+                    await update_product_image_path(product_id, image_path)
                     added_count += 1
                     logger.info(f"Добавлен товар: {product_name} - {new_price} ₽")
 
