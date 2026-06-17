@@ -14,6 +14,11 @@ class Product(BaseModel):
     """Модель товара"""
     id: int = Field(description="ID товара", examples=[1])
     name: str = Field(description="Название товара", examples=["Смартфон Apple iPhone 15"])
+    url: str | None = Field(
+        None,
+        description="Ссылка на страницу товара",
+        examples=["https://www.ozon.ru/product/example-123456789/"]
+    )
     marketplace: Marketplace = Field(
         description="Маркетплейс товара",
         examples=["ozon"]

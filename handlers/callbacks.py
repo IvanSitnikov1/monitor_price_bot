@@ -42,6 +42,9 @@ async def show_product_details(callback: types.CallbackQuery):
         f"📈 Максимальная цена: {product['max_price']} ₽ ({max_price_date})"
     )
 
+    if product.get("url"):
+        text += f"\n\n🔗 Ссылка на товар:\n{product['url']}"
+
     await callback.message.answer(
         text,
         reply_markup=get_product_detail_keyboard(product_id)

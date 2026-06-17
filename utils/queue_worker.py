@@ -6,13 +6,14 @@ from pathlib import Path
 from datetime import datetime
 from typing import Literal
 
-from utils.scraper import scrape_ozon_cart
+from utils.scraper import scrape_ozon_cart, scrape_ozon_cart_with_urls
 from core.database import mark_product_not_in_cart, mark_product_in_cart
 from utils.browser_manager import BrowserManager
 from core.models import Marketplace
 from core.database import (
     add_product,
     update_product_price,
+    update_product_url,
     get_min_price,
     get_all_products,
     save_user_cart,
@@ -196,7 +197,7 @@ class TaskQueue:
                 else:
                     logger.info(f"URL корзины изменился или страница не открыта, открываем новую")
 
-            cart_products = await scrape_ozon_cart(
+            cart_products = await scrape_ozon_cart_with_urls(
                 cart_url,
                 user_id=user_id,
                 browser_manager=self.browser_manager,
@@ -252,6 +253,7 @@ class TaskQueue:
                 continue
 
             new_price = int(price_match.group(1))
+            product_url = cart_product.get("url")
 
             # Если товар уже есть в БД
             if product_name in current_products_dict:
@@ -266,6 +268,7 @@ class TaskQueue:
 
                 # Обновляем цену
                 await update_product_price(product_id, new_price)
+                await update_product_url(product_id, product_url)
                 updated_count += 1
                 logger.info(f"Цена обновлена для {product_name}: {new_price} ₽")
 
@@ -275,7 +278,8 @@ class TaskQueue:
                     name=product_name,
                     price=new_price,
                     user_id=user_id,
-                    marketplace=marketplace_enum
+                    marketplace=marketplace_enum,
+                    url=product_url
                 )
 
                 if product_id:

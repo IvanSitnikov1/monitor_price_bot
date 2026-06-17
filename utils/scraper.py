@@ -287,13 +287,102 @@ async def _check_bot_detection(page):
         return {}
 
 
-async def scrape_ozon_cart(
+async def _close_product_pages(cart_page):
+    """Закрывает все вкладки, кроме вкладки корзины."""
+    for opened_page in list(cart_page.context.pages):
+        if opened_page != cart_page:
+            try:
+                await opened_page.close()
+            except Exception as e:
+                logger.warning(f"Не удалось закрыть вкладку товара: {e}")
+
+    try:
+        await cart_page.bring_to_front()
+    except Exception as e:
+        logger.warning(f"Не удалось вернуть фокус на вкладку корзины: {e}")
+
+
+async def _extract_product_url_from_block(page, block, product_index: int) -> str | None:
+    """
+    Открывает товар из блока корзины и возвращает URL страницы товара.
+
+    Сначала пробует Ctrl+Click, чтобы оставить корзину открытой. Если товар открылся
+    в текущей вкладке, забирает URL и возвращается назад в корзину.
+    """
+    click_target = block.locator('span.tsCompact400Large').first
+    original_url = page.url
+    product_page = None
+
+    try:
+        async with page.context.expect_page(timeout=7000) as page_info:
+            await click_target.click(timeout=5000, modifiers=["Control"])
+
+        product_page = await page_info.value
+        try:
+            await product_page.wait_for_load_state('domcontentloaded', timeout=30000)
+        except PlaywrightTimeoutError:
+            logger.warning(f"Товар {product_index + 1}: timeout загрузки страницы товара")
+
+        product_url = product_page.url
+        logger.info(f"URL товара {product_index + 1}: {product_url}")
+        return product_url
+
+    except PlaywrightTimeoutError:
+        logger.warning(
+            f"Товар {product_index + 1}: новая вкладка не открылась, пробуем текущую вкладку"
+        )
+
+        try:
+            await click_target.click(timeout=5000)
+            await page.wait_for_load_state('domcontentloaded', timeout=30000)
+
+            if page.url == original_url:
+                logger.warning(f"Товар {product_index + 1}: URL не изменился после клика")
+                return None
+
+            product_url = page.url
+            logger.info(f"URL товара {product_index + 1}: {product_url}")
+
+            await page.go_back(timeout=30000, wait_until='domcontentloaded')
+            try:
+                await page.wait_for_load_state('networkidle', timeout=10000)
+            except PlaywrightTimeoutError:
+                logger.warning("Networkidle timeout после возврата в корзину")
+
+            return product_url
+
+        except Exception as e:
+            logger.warning(f"Не удалось получить URL товара {product_index + 1}: {e}")
+            return None
+
+    except Exception as e:
+        logger.warning(f"Ошибка при открытии товара {product_index + 1}: {e}")
+        return None
+
+    finally:
+        if product_page:
+            try:
+                await product_page.close()
+            except Exception as e:
+                logger.warning(f"Не удалось закрыть вкладку товара {product_index + 1}: {e}")
+
+        if not product_page and page.url != original_url:
+            try:
+                await page.goto(original_url, timeout=30000, wait_until='domcontentloaded')
+            except Exception as e:
+                logger.warning(f"Не удалось вернуться в корзину после товара {product_index + 1}: {e}")
+
+        await _close_product_pages(page)
+
+
+async def _scrape_ozon_cart(
     url: str,
     user_id: int,
     browser_manager,
+    product_url_extractor=None,
     is_refresh: bool = False,
     maintenance_callback=None
-) -> list[dict[str, str]] | str | None:
+) -> list[dict[str, str | None]] | str | None:
     """
     Парсит корзину Ozon и извлекает список товаров.
 
@@ -301,11 +390,12 @@ async def scrape_ozon_cart(
         url: URL корзины (формат: https://www.ozon.ru/cart?share=...)
         user_id: ID пользователя Telegram
         browser_manager: Экземпляр BrowserManager для переиспользования браузера
+        product_url_extractor: Функция для извлечения URL товара из блока корзины
         is_refresh: Если True, обновляет существующую страницу вместо открытия новой
         maintenance_callback: Callback для активации maintenance mode при неудачной разблокировке
 
     Returns:
-        Список словарей с данными товаров [{"name": "...", "price": "..."}],
+        Список словарей с данными товаров [{"name": "...", "price": "...", "url": "..."}],
         строка "maintenance_required" при неудачной разблокировке,
         или None при других ошибках
     """
@@ -385,8 +475,12 @@ async def scrape_ozon_cart(
                     price = None
 
                 if name and price:
-                    products.append({"name": name, "price": price})
-                    logger.info(f"Товар {i+1}: {name} - {price}")
+                    product_url = None
+                    if product_url_extractor:
+                        product_url = await product_url_extractor(page, block, i)
+
+                    products.append({"name": name, "price": price, "url": product_url})
+                    logger.info(f"Товар {i+1}: {name} - {price} - {product_url}")
                 else:
                     logger.warning(f"Товар {i+1}: пропущен (name={name}, price={price})")
 
@@ -445,3 +539,38 @@ async def scrape_ozon_cart(
         break
 
     return products if products else None
+
+
+async def scrape_ozon_cart_with_urls(
+    url: str,
+    user_id: int,
+    browser_manager,
+    is_refresh: bool = False,
+    maintenance_callback=None
+) -> list[dict[str, str | None]] | str | None:
+    """Парсит корзину при добавлении и извлекает URL карточек товаров."""
+    return await _scrape_ozon_cart(
+        url=url,
+        user_id=user_id,
+        browser_manager=browser_manager,
+        product_url_extractor=_extract_product_url_from_block,
+        is_refresh=is_refresh,
+        maintenance_callback=maintenance_callback
+    )
+
+
+async def scrape_ozon_cart(
+    url: str,
+    user_id: int,
+    browser_manager,
+    is_refresh: bool = False,
+    maintenance_callback=None
+) -> list[dict[str, str | None]] | str | None:
+    """Парсит корзину при обновлении цен без открытия карточек товаров."""
+    return await _scrape_ozon_cart(
+        url=url,
+        user_id=user_id,
+        browser_manager=browser_manager,
+        is_refresh=is_refresh,
+        maintenance_callback=maintenance_callback
+    )

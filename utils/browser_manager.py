@@ -245,7 +245,7 @@ class BrowserManager:
     Каждый пользователь получает свой Chrome процесс на отдельном порту.
     """
 
-    def __init__(self, base_port: int = 9222):
+    def __init__(self, base_port: int = 9223):
         self.base_port = base_port
         self._instances: dict[int, BrowserInstance] = {}
         self._port_counter = 0
