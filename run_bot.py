@@ -11,7 +11,7 @@ from handlers import (
     products_router,
     admin_router,
     callbacks_router,
-    auth_ozon_router
+    auth_router
 )
 from core.database import setup_database
 from utils.price_updater import update_all_prices
@@ -83,7 +83,7 @@ async def start_bot():
     logger.info("Регистрация обработчиков...")
     dp.include_router(admin_router)
     dp.include_router(products_router)
-    dp.include_router(auth_ozon_router)
+    dp.include_router(auth_router)
     dp.include_router(callbacks_router)
     dp.include_router(common_router)  # Последний, т.к. содержит echo-обработчик
 
