@@ -56,145 +56,6 @@ async def _human_delay(min_s=0.5, max_s=2.0):
     await asyncio.sleep(delay)
 
 
-async def _unblock_ozon(page, cart_url: str):
-    """
-    Разблокирует доступ к Озону через открытие новой вкладки и переход на корзину.
-
-    Логика:
-    1. Ждёт 5 минут
-    2. Открывает новую вкладку
-    3. Применяет полный набор stealth-патчей
-    4. Открывает главную страницу Ozon
-    5. Ждёт полной загрузки
-    6. Проверяет наличие блокировки
-    7. Если блокировки нет — открывает корзину в той же вкладке
-    8. Закрывает старую вкладку
-
-    Args:
-        page: Страница Playwright (старая вкладка с блокировкой)
-        cart_url: URL корзины для открытия после разблокировки
-
-    Returns:
-        Кортеж (успех, новая_страница):
-        - (True, new_page) если разблокировка успешна (страница уже на корзине)
-        - (False, None) если блокировка осталась
-    """
-    logger.info("Попытка разблокировки: ожидание 5 минут перед проверкой...")
-
-    try:
-        # Ждём 5 минут
-        await asyncio.sleep(300)  # 300 секунд = 5 минут
-        logger.info("Ожидание завершено, открываем новую вкладку с главной страницей Ozon")
-
-        # Получаем контекст браузера
-        context = page.context
-
-        # Очищаем cookies для ozon.ru перед открытием новой вкладки
-        logger.info("Очистка cookies для ozon.ru")
-        try:
-            cookies = await context.cookies()
-            ozon_cookies = [c for c in cookies if 'ozon.ru' in c.get('domain', '')]
-            if ozon_cookies:
-                logger.info(f"Найдено {len(ozon_cookies)} cookies для ozon.ru, удаляем...")
-                await context.clear_cookies()
-                logger.info("Cookies очищены")
-            else:
-                logger.info("Cookies для ozon.ru не найдены")
-        except Exception as e:
-            logger.warning(f"Не удалось очистить cookies: {e}")
-
-        # Открываем новую вкладку
-        new_page = await context.new_page()
-        logger.info("Новая вкладка создана")
-
-        # Применяем полный набор stealth-патчей (как в основной функции)
-        stealth = Stealth(
-            navigator_languages_override=('ru-RU', 'ru'),
-            navigator_platform_override='Linux x86_64',
-            navigator_user_agent_override='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
-        )
-        await stealth.apply_stealth_async(new_page)
-        await new_page.set_viewport_size({"width": 1920, "height": 1080})
-        logger.info("Stealth-патчи применены к новой вкладке")
-
-        # Задержка перед навигацией (5-10 секунд)
-        delay = random.uniform(5, 10)
-        logger.info(f"Задержка перед навигацией: {delay:.2f}s")
-        await asyncio.sleep(delay)
-
-        # Эмулируем ручной ввод URL (более естественный способ)
-        logger.info("Эмуляция ручного ввода URL в адресную строку")
-
-        # Фокусируемся на адресной строке (Ctrl+L)
-        await new_page.keyboard.press('Control+L')
-        await asyncio.sleep(random.uniform(0.3, 0.7))
-
-        # Набираем URL посимвольно с человеческими задержками
-        url_to_type = "ozon.ru"
-        for char in url_to_type:
-            await new_page.keyboard.type(char)
-            await asyncio.sleep(random.uniform(0.05, 0.15))
-
-        # Нажимаем Enter
-        await asyncio.sleep(random.uniform(0.3, 0.8))
-        await new_page.keyboard.press('Enter')
-        logger.info("URL введён, ожидаем загрузки")
-
-        # Ждём загрузки страницы (domcontentloaded)
-        await new_page.wait_for_load_state('domcontentloaded', timeout=30000)
-        logger.info("Страница загружена (domcontentloaded)")
-
-        # Дополнительная задержка
-        await asyncio.sleep(random.uniform(3, 5))
-
-        # Ждём networkidle для полной загрузки
-        try:
-            logger.info("Ожидание networkidle")
-            await new_page.wait_for_load_state('networkidle', timeout=15000)
-            logger.info("Networkidle достигнут")
-        except PlaywrightTimeoutError:
-            logger.warning("Networkidle timeout - продолжаем проверку")
-
-        # Ещё одна задержка перед проверкой
-        await asyncio.sleep(random.uniform(2, 4))
-
-        # Проверяем наличие блокировки на новой вкладке
-        logger.info("Проверка на страницу блокировки")
-        no_connection = new_page.locator('div:has-text("Похоже, нет соединения")').first
-
-        if await no_connection.count() > 0:
-            logger.warning("Блокировка всё ещё присутствует после ожидания")
-            # Закрываем новую вкладку при неудаче
-            await new_page.close()
-            return False, None
-        else:
-            logger.info("Блокировка снята, доступ к Ozon восстановлен")
-
-            # Закрываем старую вкладку
-            await page.close()
-            logger.info("Старая вкладка закрыта")
-
-            # Открываем корзину в новой вкладке
-            logger.info(f"Открываем корзину в новой вкладке: {cart_url}")
-            await asyncio.sleep(random.uniform(2, 4))
-            await new_page.goto(cart_url, timeout=45000, wait_until='domcontentloaded')
-            logger.info("Корзина открыта в новой вкладке")
-
-            # Задержка и имитация поведения
-            await asyncio.sleep(random.uniform(3, 5))
-
-            try:
-                await new_page.wait_for_load_state('networkidle', timeout=10000)
-            except PlaywrightTimeoutError:
-                logger.warning("Networkidle timeout при открытии корзины")
-
-            return True, new_page
-
-    except Exception as e:
-        logger.error(f"Ошибка при попытке разблокировки: {e}")
-        return False, None
-
-
 async def _check_captcha(page) -> bool:
     """
     Проверяет наличие капчи на странице.
@@ -451,11 +312,11 @@ async def _scrape_ozon_cart(
         browser_manager: Экземпляр BrowserManager для переиспользования браузера
         product_details_extractor: Функция для извлечения дополнительных данных товара
         is_refresh: Если True, обновляет существующую страницу вместо открытия новой
-        maintenance_callback: Callback для активации maintenance mode при неудачной разблокировке
+        maintenance_callback: Callback для активации maintenance mode при блокировке Ozon
 
     Returns:
         Список словарей с данными товаров,
-        строка "maintenance_required" при неудачной разблокировке,
+        строка "maintenance_required" при явной блокировке,
         или None при других ошибках
     """
     logger.info(f"Начало парсинга корзины: {url}, user_id: {user_id}, is_refresh: {is_refresh}")
@@ -489,12 +350,13 @@ async def _scrape_ozon_cart(
     logger.info("Проверка наличия капчи")
     if await _check_captcha(page):
         logger.error("Обнаружена капча! Возвращаем ошибку для активации maintenance mode")
-        return None
+        if maintenance_callback:
+            await maintenance_callback()
+        return "maintenance_required"
 
-    # Парсинг товаров из корзины (с возможностью повторной попытки после разблокировки)
+    # Парсинг товаров из корзины
     logger.info("Начинаем извлечение товаров из корзины")
     products = []
-    unblock_attempted = False
 
     while True:
         try:
@@ -558,46 +420,11 @@ async def _scrape_ozon_cart(
             if await no_connection.count() > 0:
                 logger.warning("Обнаружена страница блокировки 'нет соединения'")
 
-                # Если уже пытались разблокировать — прерываем
-                if unblock_attempted:
-                    logger.error("Разблокировка не помогла, прерываем парсинг")
-                    return None
+                if maintenance_callback:
+                    logger.warning("Активация maintenance mode после блокировки Ozon")
+                    await maintenance_callback()
 
-                # Пытаемся разблокировать
-                unblock_attempted = True
-                unblock_success, new_page = await _unblock_ozon(page, url)
-
-                if not unblock_success:
-                    logger.error("Не удалось разблокировать доступ к Озону")
-
-                    # Активируем maintenance mode через callback
-                    if maintenance_callback:
-                        logger.warning("Активация maintenance mode после неудачной разблокировки")
-                        await maintenance_callback()
-
-                    # Возвращаем специальный маркер для прерывания повторных попыток
-                    return "maintenance_required"
-
-                # Используем новую страницу после разблокировки
-                # Корзина уже открыта в новой вкладке
-                page = new_page
-                if hasattr(browser_manager, "set_cart_page"):
-                    browser_manager.set_cart_page(user_id, "ozon", url, page)
-                logger.info("Переключились на новую вкладку, корзина уже загружена")
-
-                # Продолжаем парсинг без повторного перехода
-                await _human_like_behavior(page)
-
-                # Сохраняем скриншот после разблокировки
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                screenshot_path_unblock = f'debug_data/cart_user{user_id}_after_unblock_{timestamp}.png'
-                await page.screenshot(path=screenshot_path_unblock)
-                logger.info(f"Скриншот после разблокировки: {screenshot_path_unblock}")
-
-                # Повторяем парсинг (continue вернёт в начало while True)
-                logger.info("Повторная попытка парсинга после разблокировки")
-                products = []  # Сбрасываем список
-                continue
+                return "maintenance_required"
 
         # Если товары найдены или блокировки нет — выходим из цикла
         break

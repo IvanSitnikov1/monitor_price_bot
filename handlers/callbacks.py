@@ -4,6 +4,7 @@ from io import StringIO
 from pathlib import Path
 
 from aiogram import F, types, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import FSInputFile
 
 from keyboards.inline import (
@@ -56,6 +57,23 @@ def _build_price_history_csv(history: list[dict]) -> bytes:
         writer.writerow([entry["date_checked"], entry["price"]])
 
     return csv_file.getvalue().encode("utf-8-sig")
+
+
+async def _show_updated_products_after_delete(
+    message: types.Message,
+    text: str,
+    reply_markup: types.InlineKeyboardMarkup | None = None
+):
+    """Показывает обновленный список после удаления товара."""
+    if message.text:
+        await message.edit_text(text, reply_markup=reply_markup)
+        return
+
+    await message.answer(text, reply_markup=reply_markup)
+    try:
+        await message.delete()
+    except TelegramBadRequest as e:
+        logger.warning(f"Не удалось удалить старую карточку товара: {e}")
 
 
 # Обработчик нажатия на товар в списке
@@ -156,10 +174,14 @@ async def delete_product_handler(callback: types.CallbackQuery):
 
         if not products:
             # Если список пуст, показываем соответствующее сообщение
-            await callback.message.edit_text("Список позиций пуст. Добавьте товары для отслеживания.")
+            await _show_updated_products_after_delete(
+                callback.message,
+                "Список позиций пуст. Добавьте товары для отслеживания."
+            )
         else:
             # Показываем обновленный список товаров
-            await callback.message.edit_text(
+            await _show_updated_products_after_delete(
+                callback.message,
                 "📋 Список отслеживаемых товаров:",
                 reply_markup=get_products_keyboard(products, marketplace_filter=None)
             )

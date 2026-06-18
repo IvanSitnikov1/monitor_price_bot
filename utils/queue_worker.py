@@ -241,7 +241,8 @@ class TaskQueue:
                 browser_manager=self.browser_manager,
                 maintenance_callback=lambda: self._activate_maintenance_mode(
                     task["user_id"],
-                    Marketplace.AVITO.value
+                    Marketplace.AVITO.value,
+                    reason="обнаружена блокировка при парсинге объявления"
                 )
             )
             if result == "maintenance_required" or result:
@@ -249,7 +250,13 @@ class TaskQueue:
             logger.warning(f"Avito: попытка парсинга {attempt}/3 не удалась")
             if attempt < 3:
                 await asyncio.sleep(5)
-        return None
+
+        await self._activate_maintenance_mode(
+            task["user_id"],
+            Marketplace.AVITO.value,
+            reason="три неудачные попытки парсинга объявления"
+        )
+        return "maintenance_required"
 
     async def _handle_add_avito_product(self, task: dict):
         """Добавляет одно объявление Avito."""
@@ -364,7 +371,8 @@ class TaskQueue:
                         is_refresh=is_refresh,
                         maintenance_callback=lambda: self._activate_maintenance_mode(
                             user_id,
-                            marketplace
+                            marketplace,
+                            reason="обнаружена блокировка при парсинге корзины"
                         )
                     )
                 case Marketplace.WILDBERRIES.value:
@@ -375,7 +383,8 @@ class TaskQueue:
                         is_refresh=is_refresh,
                         maintenance_callback=lambda: self._activate_maintenance_mode(
                             user_id,
-                            marketplace
+                            marketplace,
+                            reason="обнаружена блокировка при парсинге корзины"
                         )
                     )
                 case _:
@@ -401,7 +410,11 @@ class TaskQueue:
                 f"Все 3 попытки парсинга корзины провалились для {cart_url} "
                 f"пользователя {user_id}"
             )
-            # Без явной блокировки maintenance mode не активируем.
+            await self._activate_maintenance_mode(
+                user_id,
+                marketplace,
+                reason="три неудачные попытки парсинга корзины"
+            )
             return
 
         # Получаем текущие товары пользователя (включая удалённые из корзины)
@@ -561,7 +574,8 @@ class TaskQueue:
                         is_refresh=is_refresh,
                         maintenance_callback=lambda: self._activate_maintenance_mode(
                             user_id,
-                            marketplace
+                            marketplace,
+                            reason="обнаружена блокировка при парсинге корзины"
                         )
                     )
                 case Marketplace.WILDBERRIES.value:
@@ -572,7 +586,8 @@ class TaskQueue:
                         is_refresh=is_refresh,
                         maintenance_callback=lambda: self._activate_maintenance_mode(
                             user_id,
-                            marketplace
+                            marketplace,
+                            reason="обнаружена блокировка при парсинге корзины"
                         )
                     )
                 case _:
@@ -598,7 +613,11 @@ class TaskQueue:
                 f"Все 3 попытки парсинга корзины провалились для {cart_url} "
                 f"пользователя {user_id}"
             )
-            # Без явной блокировки maintenance mode не активируем.
+            await self._activate_maintenance_mode(
+                user_id,
+                marketplace,
+                reason="три неудачные попытки парсинга корзины"
+            )
             return
 
         # Получаем текущие товары пользователя из БД (включая удалённые из корзины)
@@ -696,7 +715,8 @@ class TaskQueue:
     async def _activate_maintenance_mode(
         self,
         user_id: int,
-        marketplace: str | None = None
+        marketplace: str | None = None,
+        reason: str = "обнаружена блокировка"
     ):
         """
         Активирует режим техработ для конкретного пользователя.
@@ -704,26 +724,15 @@ class TaskQueue:
         Args:
             user_id: ID пользователя
             marketplace: Маркетплейс, для которого обнаружена блокировка
+            reason: Причина включения режима техработ
         """
         logger.warning(
             f"Активация режима техработ для пользователя {user_id}, "
-            f"маркетплейс={marketplace}, после обнаружения блокировки"
+            f"маркетплейс={marketplace}, причина={reason}"
         )
 
         # Включаем режим техработ для пользователя
         maintenance_mode.enable(user_id, marketplace)
-
-        # Отправляем уведомление пользователю
-        try:
-            await self.bot.send_message(
-                user_id,
-                "🚧 Обнаружена проблема при обновлении цен.\n"
-                f"Маркетплейс: {marketplace or 'не определён'}.\n"
-                "Обновления для этого маркетплейса временно приостановлены.\n"
-                "Администратор решит проблему в ближайшее время."
-            )
-        except Exception as e:
-            logger.error(f"Не удалось отправить уведомление пользователю {user_id}: {e}")
 
         # Отправляем уведомление администратору
         try:
@@ -732,7 +741,7 @@ class TaskQueue:
                 config.ADMIN_USER_ID,
                 f"🚧 Активирован maintenance mode для пользователя {user_id}\n"
                 f"Маркетплейс: {marketplace or 'не определён'}\n"
-                f"Причина: обнаружена блокировка при парсинге корзины\n\n"
+                f"Причина: {reason}\n\n"
                 f"Для разблокировки удалите файл: "
                 f"maintenance_flags/maintenance_{user_id}{marketplace_suffix}.flag"
             )
