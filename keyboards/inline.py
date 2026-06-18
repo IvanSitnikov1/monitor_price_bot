@@ -115,3 +115,13 @@ def get_product_detail_keyboard(product_id: int) -> InlineKeyboardMarkup:
     builder.adjust(2)
 
     return builder.as_markup()
+
+
+def get_price_history_keyboard(product_id: int) -> InlineKeyboardMarkup:
+    """Создает клавиатуру для скачивания подробной истории цен."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="📥 Скачать подробную историю",
+        callback_data=f"history_download:{product_id}"
+    )
+    return builder.as_markup()

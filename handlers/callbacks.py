@@ -1,13 +1,20 @@
+import csv
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
 
 from aiogram import F, types, Router
 from aiogram.types import FSInputFile
 
-from keyboards.inline import get_products_keyboard, get_product_detail_keyboard
+from keyboards.inline import (
+    get_price_history_keyboard,
+    get_product_detail_keyboard,
+    get_products_keyboard,
+)
 from core.database import (
     get_all_products,
     get_product_details,
+    get_price_changes,
     delete_product,
     get_price_history,
 )
@@ -15,6 +22,40 @@ from loggers import logger
 
 
 callbacks_router = Router()
+HISTORY_MESSAGE_LIMIT = 3900
+
+
+def _format_price_history(history: list[dict]) -> list[str]:
+    """Формирует сообщения с историей изменений в пределах лимита Telegram."""
+    header = "📊 История изменений цен:\n\n"
+    continuation_header = "📊 История изменений цен (продолжение):\n\n"
+    messages: list[str] = []
+    current_message = header
+
+    for entry in history:
+        date_time = datetime.fromisoformat(entry["date_checked"]).strftime("%d.%m.%Y %H:%M")
+        line = f"• {date_time} — {entry['price']} ₽\n"
+
+        if len(current_message) + len(line) > HISTORY_MESSAGE_LIMIT:
+            messages.append(current_message.rstrip())
+            current_message = continuation_header
+
+        current_message += line
+
+    messages.append(current_message.rstrip())
+    return messages
+
+
+def _build_price_history_csv(history: list[dict]) -> bytes:
+    """Формирует CSV с полной историей проверок цены."""
+    csv_file = StringIO(newline="")
+    writer = csv.writer(csv_file)
+    writer.writerow(["Дата проверки", "Цена, ₽"])
+
+    for entry in history:
+        writer.writerow([entry["date_checked"], entry["price"]])
+
+    return csv_file.getvalue().encode("utf-8-sig")
 
 
 # Обработчик нажатия на товар в списке
@@ -136,16 +177,39 @@ async def show_price_history(callback: types.CallbackQuery):
     product_id = int(callback.data.split(":")[1])
     logger.info(f"Пользователь {user.id} запросил историю цен товара ID: {product_id}")
 
-    history = await get_price_history(product_id)
+    history = await get_price_changes(product_id, user.id)
 
     if not history:
-        await callback.answer("История цен пуста", show_alert=True)
+        await callback.answer("История цен пуста или товар не найден", show_alert=True)
         return
 
-    text = "📊 История цен:\n\n"
-    for entry in history:
-        date_time = datetime.fromisoformat(entry['date_checked']).strftime('%d.%m.%Y %H:%M')
-        text += f"• {date_time} — {entry['price']} ₽\n"
-
-    await callback.message.answer(text)
+    messages = _format_price_history(history)
+    keyboard = get_price_history_keyboard(product_id)
     await callback.answer()
+
+    for index, text in enumerate(messages):
+        reply_markup = keyboard if index == len(messages) - 1 else None
+        await callback.message.answer(text, reply_markup=reply_markup)
+
+
+@callbacks_router.callback_query(F.data.startswith("history_download:"))
+async def download_price_history(callback: types.CallbackQuery):
+    """Отправляет полную подробную историю цен в формате CSV."""
+    user = callback.from_user
+    product_id = int(callback.data.split(":")[1])
+    logger.info(f"Пользователь {user.id} скачивает историю цен товара ID: {product_id}")
+
+    history = await get_price_history(product_id, user.id)
+
+    if not history:
+        await callback.answer("История цен пуста или товар не найден", show_alert=True)
+        return
+
+    await callback.answer()
+    await callback.message.answer_document(
+        document=types.BufferedInputFile(
+            _build_price_history_csv(history),
+            filename=f"price_history_{product_id}.csv"
+        ),
+        caption="📊 Полная подробная история цен"
+    )

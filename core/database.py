@@ -269,12 +269,13 @@ async def get_all_products_for_update() -> list[dict]:
         return [dict(row) for row in rows]
 
 
-async def get_price_history(product_id: int) -> list[dict]:
+async def get_price_history(product_id: int, user_id: int) -> list[dict]:
     """
-    Получает всю историю цен товара.
+    Получает полную историю проверок цены товара пользователя.
 
     Args:
         product_id: ID товара
+        user_id: ID пользователя Telegram
 
     Returns:
         Список словарей с полями: price, date_checked
@@ -283,11 +284,40 @@ async def get_price_history(product_id: int) -> list[dict]:
         db.row_factory = aiosqlite.Row
 
         cursor = await db.execute("""
+            SELECT ph.price, ph.date_checked
+            FROM price_history ph
+            JOIN products p ON p.id = ph.product_id
+            WHERE ph.product_id = ? AND p.user_id = ?
+            ORDER BY ph.date_checked DESC, ph.id DESC
+        """, (product_id, user_id))
+
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def get_price_changes(product_id: int, user_id: int) -> list[dict]:
+    """Получает только фактические изменения цены товара пользователя."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute("""
+            WITH ordered_history AS (
+                SELECT
+                    ph.id,
+                    ph.price,
+                    ph.date_checked,
+                    LAG(ph.price) OVER (
+                        ORDER BY ph.date_checked ASC, ph.id ASC
+                    ) AS previous_price
+                FROM price_history ph
+                JOIN products p ON p.id = ph.product_id
+                WHERE ph.product_id = ? AND p.user_id = ?
+            )
             SELECT price, date_checked
-            FROM price_history
-            WHERE product_id = ?
-            ORDER BY date_checked DESC
-        """, (product_id,))
+            FROM ordered_history
+            WHERE previous_price IS NULL OR price != previous_price
+            ORDER BY date_checked DESC, id DESC
+        """, (product_id, user_id))
 
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
