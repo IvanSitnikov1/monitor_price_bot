@@ -40,10 +40,14 @@ async def add_cart(message: types.Message, state: FSMContext):
     await register_user(user.id, user.username, user.first_name)
 
     await message.answer(
-        "Отправь мне ссылку на корзину Ozon или Wildberries.\n"
+        "Отправь ссылку на общую корзину Ozon или Wildberries либо прямую ссылку на "
+        "объявление Avito.\n"
         "Форматы:\n"
-        "https://www.ozon.ru/cart?share=...\n"
-        "https://www.wildberries.ru/basket?shareId=..."
+        "<code>https://www.ozon.ru/cart?share=...</code>\n"
+        "<code>https://www.wildberries.ru/basket?shareId=...</code>\n"
+        "<code>https://www.avito.ru/...</code>",
+        parse_mode="HTML",
+        link_preview_options=types.LinkPreviewOptions(is_disabled=True)
     )
     await state.set_state(AddCart.waiting_for_link)
 
@@ -62,7 +66,7 @@ async def list_positions(message: types.Message, state: FSMContext):
     logger.info(f"Найдено товаров в БД для пользователя {user.id}: {len(products)}")
 
     if not products:
-        await message.answer("Список позиций пуст. Добавьте корзину для отслеживания.")
+        await message.answer("Список позиций пуст. Добавьте товары для отслеживания.")
         return
 
     await message.answer(
@@ -88,9 +92,12 @@ async def process_cart_link(message: types.Message, state: FSMContext):
         logger.warning(f"Неверный формат ссылки на корзину от пользователя {user.id}")
         await message.answer(
             "❌ Неверный формат ссылки.\n"
-            "Ожидаются ссылки вида:\n"
-            "https://www.ozon.ru/cart?share=...\n"
-            "https://www.wildberries.ru/basket?shareId=..."
+            "Ожидаются ссылки на общую корзину или объявление вида:\n"
+            "<code>https://www.ozon.ru/cart?share=...</code>\n"
+            "<code>https://www.wildberries.ru/basket?shareId=...</code>\n"
+            "<code>https://www.avito.ru/...</code>",
+            parse_mode="HTML",
+            link_preview_options=types.LinkPreviewOptions(is_disabled=True)
         )
         return
 
@@ -105,7 +112,7 @@ async def process_cart_link(message: types.Message, state: FSMContext):
     )
 
     await message.answer(
-        "⏳ Корзина добавлена в очередь обработки.\n"
+        "⏳ Ссылка добавлена в очередь обработки.\n"
         "Это может занять некоторое время, ожидайте уведомления."
     )
 

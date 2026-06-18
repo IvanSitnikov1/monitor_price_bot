@@ -22,7 +22,12 @@ def _get_auth_menu_keyboard() -> InlineKeyboardMarkup:
     """Создаёт меню выбора авторизации."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Авторизоваться в Ozon", callback_data="auth_ozon_start")],
-        [InlineKeyboardButton(text="✅ Авторизоваться в WB", callback_data="auth_wb_start")],
+        [
+            InlineKeyboardButton(
+                text="✅ Авторизоваться в Wildberries",
+                callback_data="auth_wb_start"
+            )
+        ],
         [InlineKeyboardButton(text="🗑 Удалить мои данные", callback_data="auth_delete_data")]
     ])
 
@@ -31,7 +36,8 @@ async def _show_auth_marketplace_menu(message: types.Message):
     """Показывает меню выбора маркетплейса для авторизации."""
     auth_menu_text = (
         "🔐 <b>Управление авторизацией</b>\n\n"
-        "Выберите магазин для авторизации:"
+        "Выберите маркетплейс для авторизации.\n"
+        "Для Avito авторизация не требуется."
     )
     await message.answer(
         auth_menu_text,
@@ -49,7 +55,10 @@ async def _send_common_agreement(message: types.Message):
         "<b>Что нужно знать:</b>\n"
         "• Это неофициальный сервис\n"
         "• Данные авторизации хранятся на сервере администратора\n"
-        "• Авторизацию Wildberries администратор выполняет вручную\n"
+        "• Авторизацию Wildberries и Ozon администратор выполняет вручную\n"
+        "• Для Avito авторизация не требуется\n"
+        "• Бот и администратор не запрашивают и не хранят платежные реквизиты и не имеют "
+        "к ним доступа в рамках авторизации\n"
         "• Вы можете удалить данные авторизации в любой момент\n\n"
         "📄 Подробная информация о рисках и обработке данных во вложенном файле.\n\n"
         "📞 Вопросы: @Ivanches1\n\n"
@@ -60,11 +69,14 @@ async def _send_common_agreement(message: types.Message):
         "⚖️ ЮРИДИЧЕСКИЙ DISCLAIMER И ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ\n"
         "Дата: 17.06.2026\n\n"
         "Этот бот является независимым сервисом для мониторинга цен и не является "
-        "официальным продуктом Ozon или Wildberries.\n\n"
+        "официальным продуктом Ozon, Wildberries или Avito.\n\n"
         "При авторизации обрабатываются:\n"
         "• Номер телефона\n"
         "• Cookies сессии Ozon и/или Wildberries\n"
         "• Содержимое корзин, цены товаров и история изменений\n\n"
+        "Бот и администратор не запрашивают и не хранят номера банковских карт, "
+        "сроки их действия, CVC/CVV и иные платежные реквизиты. В рамках авторизации "
+        "администратор не получает доступ к этим данным.\n\n"
         "Данные хранятся на сервере бота. Сервер принадлежит администратору. "
         "Администратор технически имеет доступ к профилям браузера и cookies.\n\n"
         "Используя авторизацию, вы принимаете риски технических сбоев, временных "
@@ -132,7 +144,8 @@ async def accept_agreement(callback: types.CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(
         "✅ Соглашение принято.\n\n"
-        "Теперь выберите магазин для авторизации:",
+        "Теперь выберите маркетплейс для авторизации.\n"
+        "Для Avito авторизация не требуется.",
         reply_markup=_get_auth_menu_keyboard(),
         parse_mode="HTML"
     )
@@ -183,7 +196,8 @@ async def decline_agreement(callback: types.CallbackQuery):
 
     await callback.message.edit_text(
         "❌ Вы отклонили условия авторизации.\n\n"
-        "⚠️ Без авторизации цены товаров могут отображаться некорректно.\n\n"
+        "⚠️ Без авторизации цены товаров Ozon и Wildberries могут отображаться "
+        "некорректно. Для Avito авторизация не требуется.\n\n"
         "Вы можете вернуться к авторизации позже через кнопку 🔐 Авторизация."
     )
     await callback.answer()
@@ -384,7 +398,10 @@ async def notify_admin_about_wildberries_auth_request(
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✅ Авторизовать WB", callback_data=f"auth_wb_approve:{user_id}"),
+            InlineKeyboardButton(
+                text="✅ Авторизовать Wildberries",
+                callback_data=f"auth_wb_approve:{user_id}"
+            ),
             InlineKeyboardButton(text="❌ Отклонить", callback_data=f"auth_wb_reject:{user_id}")
         ]
     ])
@@ -438,7 +455,7 @@ async def approve_wildberries_authorization(callback: types.CallbackQuery, state
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✅ Подтвердить авторизацию WB",
+                    text="✅ Подтвердить авторизацию Wildberries",
                     callback_data=f"auth_wb_confirm:{user_id}"
                 )
             ]
