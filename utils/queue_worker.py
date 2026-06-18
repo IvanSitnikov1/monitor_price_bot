@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Literal
 
 from utils.scraper import (
+    scrape_avito_product,
     scrape_ozon_cart,
     scrape_ozon_cart_with_urls,
     scrape_wildberries_cart,
@@ -24,6 +25,7 @@ from core.database import (
     update_product_image_path,
     get_min_price,
     get_all_products,
+    get_product_by_url,
     save_user_cart,
 )
 from utils.maintenance import maintenance_mode
@@ -111,11 +113,17 @@ class TaskQueue:
 
     async def add_task(
         self,
-        task_type: Literal["add_cart", "update_cart"],
+        task_type: Literal[
+            "add_cart",
+            "add_product",
+            "update_cart",
+            "update_product",
+        ],
         url: str,
         user_id: int,
         priority: int = 2,
         marketplace: str | None = None,
+        product_id: int | None = None,
     ):
         """
         Добавляет задачу в очередь.
@@ -126,12 +134,14 @@ class TaskQueue:
             priority: Приоритет (1 - высокий, 2 - низкий)
             user_id: ID пользователя (для add_product/add_cart/update_cart)
             marketplace: Маркетплейс товара (для add_product/add_cart)
+            product_id: ID товара для задачи обновления отдельного товара
         """
         task = {
             "type": task_type,
             "url": url,
             "user_id": user_id,
             "marketplace": marketplace,
+            "product_id": product_id,
             "added_at": datetime.now().isoformat()
         }
 
@@ -202,6 +212,14 @@ class TaskQueue:
                 await self._handle_update_cart(task)
                 return
 
+            if task_type == "add_product":
+                await self._handle_add_avito_product(task)
+                return
+
+            if task_type == "update_product":
+                await self._handle_update_avito_product(task)
+                return
+
         except Exception as e:
             logger.error(f"Ошибка при обработке задачи {task_type}: {e}", exc_info=True)
 
@@ -213,6 +231,98 @@ class TaskQueue:
                     )
                 except Exception as send_error:
                     logger.error(f"Не удалось отправить сообщение пользователю: {send_error}")
+
+    async def _scrape_avito_with_retries(self, task: dict):
+        """Парсит объявление Avito с повторными попытками."""
+        for attempt in range(1, 4):
+            result = await scrape_avito_product(
+                task["url"],
+                user_id=task["user_id"],
+                browser_manager=self.browser_manager,
+                maintenance_callback=lambda: self._activate_maintenance_mode(
+                    task["user_id"],
+                    Marketplace.AVITO.value
+                )
+            )
+            if result == "maintenance_required" or result:
+                return result
+            logger.warning(f"Avito: попытка парсинга {attempt}/3 не удалась")
+            if attempt < 3:
+                await asyncio.sleep(5)
+        return None
+
+    async def _handle_add_avito_product(self, task: dict):
+        """Добавляет одно объявление Avito."""
+        user_id = task["user_id"]
+        existing_product = await get_product_by_url(
+            user_id,
+            task["url"],
+            Marketplace.AVITO
+        )
+        if existing_product:
+            await self.bot.send_message(user_id, "ℹ️ Это объявление уже отслеживается.")
+            return
+
+        product = await self._scrape_avito_with_retries(task)
+        if not product or product == "maintenance_required":
+            if product != "maintenance_required":
+                await self.bot.send_message(
+                    user_id,
+                    "❌ Не удалось получить данные объявления Avito. Попробуйте позже."
+                )
+            return
+
+        product_id = await add_product(
+            name=product["name"],
+            price=product["price"],
+            user_id=user_id,
+            marketplace=Marketplace.AVITO,
+            url=task["url"],
+            image_url=product.get("image_url")
+        )
+        if not product_id:
+            raise RuntimeError("Не удалось сохранить объявление Avito")
+
+        image_path = await _download_product_image(
+            product.get("image_url"),
+            user_id,
+            product_id
+        )
+        await update_product_image_path(product_id, image_path)
+        await self.bot.send_message(
+            user_id,
+            f"✅ Объявление добавлено!\n\n📦 {product['name']}\n💰 {product['price']} ₽"
+        )
+
+    async def _handle_update_avito_product(self, task: dict):
+        """Обновляет цену одного объявления Avito."""
+        stored_product = await get_product_by_url(
+            task["user_id"],
+            task["url"],
+            Marketplace.AVITO
+        )
+        if not stored_product or stored_product["id"] != task.get("product_id"):
+            logger.warning("Товар Avito удалён или не принадлежит пользователю")
+            return
+
+        product = await self._scrape_avito_with_retries(task)
+        if not product or product == "maintenance_required":
+            return
+
+        product_id = stored_product["id"]
+
+        min_price_before = await get_min_price(product_id)
+        await update_product_price(product_id, product["price"])
+
+        if min_price_before is not None and product["price"] < min_price_before:
+            await self.bot.send_message(
+                task["user_id"],
+                "🔔 Цена снизилась!\n\n"
+                f"📦 {product['name']}\n\n"
+                f"💰 Новая цена: {product['price']} ₽\n"
+                f"📉 Было минимум: {min_price_before} ₽\n"
+                f"💵 Экономия: {min_price_before - product['price']} ₽"
+            )
 
     async def _handle_add_cart(self, task: dict):
         """Обрабатывает задачу добавления корзины"""

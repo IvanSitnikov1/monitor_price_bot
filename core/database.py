@@ -249,9 +249,12 @@ async def get_product_details(product_id: int, user_id: int) -> dict | None:
         return dict(row) if row else None
 
 
-async def get_all_products_for_update() -> list[dict]:
+async def get_all_products_for_update(marketplace: str | None = None) -> list[dict]:
     """
     Получает список всех товаров для фонового обновления цен.
+
+    Args:
+        marketplace: Фильтр по маркетплейсу
 
     Returns:
         Список словарей с полями: id, user_id, name, marketplace
@@ -259,14 +262,46 @@ async def get_all_products_for_update() -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
 
-        cursor = await db.execute("""
+        query = """
             SELECT id, user_id, name, url, image_url, image_path, marketplace
             FROM products
-            ORDER BY id
-        """)
+            WHERE in_cart = 1 AND url IS NOT NULL
+        """
+        params = []
+
+        if marketplace:
+            query += " AND marketplace = ?"
+            params.append(marketplace)
+
+        query += " ORDER BY id"
+        cursor = await db.execute(query, params)
 
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+async def get_product_by_url(
+    user_id: int,
+    url: str,
+    marketplace: Marketplace | str
+) -> dict | None:
+    """Получает товар пользователя по URL и маркетплейсу."""
+    marketplace_value = (
+        marketplace.value if isinstance(marketplace, Marketplace) else marketplace
+    )
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT id, name, url, image_url, image_path, marketplace, in_cart
+            FROM products
+            WHERE user_id = ? AND url = ? AND marketplace = ?
+            """,
+            (user_id, url, marketplace_value)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 
 async def get_price_history(product_id: int, user_id: int) -> list[dict]:

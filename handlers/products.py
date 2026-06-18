@@ -1,4 +1,5 @@
-from urllib.parse import parse_qs, urlparse
+import re
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 from aiogram import F, types, Router
 from aiogram.fsm.context import FSMContext
@@ -28,6 +29,31 @@ def _detect_cart_marketplace(url: str) -> Marketplace | None:
                 return Marketplace.WILDBERRIES
 
     return None
+
+
+def _normalize_avito_product_url(url: str) -> str | None:
+    """Проверяет и нормализует прямую ссылку на объявление Avito."""
+    parsed_url = urlparse(url)
+    allowed_hosts = {"avito.ru", "www.avito.ru", "m.avito.ru"}
+    try:
+        port = parsed_url.port
+    except ValueError:
+        return None
+
+    if (
+        parsed_url.scheme != "https"
+        or parsed_url.hostname not in allowed_hosts
+        or port is not None
+        or parsed_url.username
+        or parsed_url.password
+    ):
+        return None
+
+    path = parsed_url.path.rstrip("/")
+    if not re.search(r"_[0-9]{6,}$", path):
+        return None
+
+    return urlunparse(("https", "www.avito.ru", path, "", "", ""))
 
 
 # Обработчик кнопки "Добавить товары"
@@ -80,12 +106,13 @@ async def process_cart_link(message: types.Message, state: FSMContext):
     user = message.from_user
     text = message.text.strip()
 
-    logger.info(f"Пользователь {user.id} отправил ссылку на корзину: {text}")
+    logger.info(f"Пользователь {user.id} отправил ссылку: {text}")
 
     # Регистрируем пользователя перед добавлением товаров (на случай, если его ещё нет)
     await register_user(user.id, user.username, user.first_name)
 
-    marketplace = _detect_cart_marketplace(text)
+    avito_url = _normalize_avito_product_url(text)
+    marketplace = Marketplace.AVITO if avito_url else _detect_cart_marketplace(text)
 
     # Проверяем формат ссылки на корзину
     if not marketplace:
@@ -104,8 +131,8 @@ async def process_cart_link(message: types.Message, state: FSMContext):
     # Добавляем задачу в очередь с высоким приоритетом
     task_queue = message.bot.task_queue
     await task_queue.add_task(
-        task_type="add_cart",
-        url=text,
+        task_type="add_product" if marketplace == Marketplace.AVITO else "add_cart",
+        url=avito_url or text,
         marketplace=marketplace.value,
         priority=1,  # Высокий приоритет
         user_id=user.id
@@ -116,5 +143,5 @@ async def process_cart_link(message: types.Message, state: FSMContext):
         "Это может занять некоторое время, ожидайте уведомления."
     )
 
-    logger.info(f"Задача добавления корзины добавлена в очередь для пользователя {user.id}")
+    logger.info(f"Задача добавления товаров добавлена в очередь для пользователя {user.id}")
     await state.clear()

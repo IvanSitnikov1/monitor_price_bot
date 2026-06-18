@@ -524,6 +524,16 @@ class BrowserManager:
         instance = self._get_instance(user_id)
         return await instance.open_authorization_page(url, marketplace)
 
+    async def get_product_page(
+        self,
+        product_url: str,
+        user_id: int,
+        marketplace: str
+    ) -> Page:
+        """Возвращает переиспользуемую вкладку страницы товара маркетплейса."""
+        instance = self._get_instance(user_id)
+        return await instance.open_cart_page(product_url, marketplace)
+
     async def refresh_cart_page(self, user_id: int, marketplace: str = "ozon") -> Page:
         """
         Обновляет страницу корзины для пользователя (имитирует F5).

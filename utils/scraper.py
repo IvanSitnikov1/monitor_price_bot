@@ -849,3 +849,83 @@ async def scrape_ozon_cart(
         is_refresh=is_refresh,
         maintenance_callback=maintenance_callback
     )
+
+
+async def scrape_avito_product(
+    url: str,
+    user_id: int,
+    browser_manager,
+    maintenance_callback=None
+) -> dict[str, str | int | None] | str | None:
+    """Парсит отдельное объявление Avito через Playwright."""
+    try:
+        page = await browser_manager.get_product_page(
+            product_url=url,
+            user_id=user_id,
+            marketplace="avito"
+        )
+        await _human_delay(1, 2)
+
+        try:
+            await page.wait_for_load_state("networkidle", timeout=15000)
+        except PlaywrightTimeoutError:
+            logger.warning("Avito: ожидание networkidle завершилось по тайм-ауту")
+
+        await _human_like_behavior(page)
+        data = await page.evaluate("""
+            () => {
+                const bodyText = document.body?.innerText || '';
+                const blockedTexts = [
+                    'Доступ ограничен',
+                    'Подтвердите, что вы не робот',
+                    'Проверяем, что вы не робот'
+                ];
+                const blocked = blockedTexts.some((text) => bodyText.includes(text));
+                const unavailable = bodyText.includes('Объявление снято с публикации') ||
+                    bodyText.includes('Такой страницы не существует');
+                const title = document.querySelector(
+                    '[data-marker="item-view/title-info"]'
+                )?.textContent?.trim();
+                const priceElement = document.querySelector(
+                    '[data-marker="item-view/item-price"]'
+                );
+                const price = priceElement?.getAttribute('content') ||
+                    priceElement?.textContent?.trim();
+                const imageElement = document.querySelector(
+                    '[data-marker="image-frame/image"]'
+                );
+                const imageUrl = imageElement?.getAttribute('src') ||
+                    document.querySelector(
+                        '[data-marker="image-frame/image-wrapper"]'
+                    )?.getAttribute('data-url');
+
+                return {blocked, unavailable, title, price, imageUrl};
+            }
+        """)
+
+        if data.get("blocked"):
+            logger.warning(f"Avito заблокировал доступ к объявлению: {url}")
+            if maintenance_callback:
+                await maintenance_callback()
+            return "maintenance_required"
+
+        if data.get("unavailable"):
+            logger.warning(f"Объявление Avito недоступно: {url}")
+            return None
+
+        normalized_price = _normalize_price(data.get("price"))
+        if not data.get("title") or not normalized_price:
+            logger.warning(f"Avito: не удалось извлечь название или цену: {url}")
+            return None
+
+        price = int(re.sub(r"\D", "", normalized_price))
+
+        return {
+            "name": data["title"],
+            "price": price,
+            "url": url,
+            "image_url": _normalize_image_url(data.get("imageUrl")),
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при парсинге объявления Avito {url}: {e}", exc_info=True)
+        return None
