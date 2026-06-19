@@ -66,8 +66,13 @@ async def add_cart(message: types.Message, state: FSMContext):
     await register_user(user.id, user.username, user.first_name)
 
     await message.answer(
-        "Отправь ссылку на общую корзину Ozon или Wildberries либо прямую ссылку на "
-        "объявление Avito.\n"
+        "Отправьте ссылку на общую корзину Ozon или Wildberries либо прямую ссылку на "
+        "объявление Avito.\n\n"
+        "⚠️ Для Ozon и Wildberries действует правило: одна активная корзина на каждый "
+        "маркетплейс. Новая ссылка заменит предыдущую корзину этого же маркетплейса. Товары, "
+        "которых нет в новой корзине, перестанут отслеживаться, но останутся в списке с "
+        "сохранённой историей.\n\n"
+        "Ссылки Avito добавляются по одной и не заменяют ранее добавленные объявления.\n\n"
         "Форматы:\n"
         "<code>https://www.ozon.ru/cart?share=...</code>\n"
         "<code>https://www.wildberries.ru/basket?shareId=...</code>\n"
@@ -96,7 +101,9 @@ async def list_positions(message: types.Message, state: FSMContext):
         return
 
     await message.answer(
-        "📋 Список отслеживаемых товаров:",
+        "📋 Товары и история цен\n\n"
+        "Без отметки ❌ — отслеживается.\n"
+        "❌ — не отслеживается; показаны последняя цена и сохранённая история.",
         reply_markup=get_products_keyboard(products, marketplace_filter=None)
     )
 
@@ -138,10 +145,17 @@ async def process_cart_link(message: types.Message, state: FSMContext):
         user_id=user.id
     )
 
-    await message.answer(
+    queue_message = (
         "⏳ Ссылка добавлена в очередь обработки.\n"
         "Это может занять некоторое время, ожидайте уведомления."
     )
+    if marketplace != Marketplace.AVITO:
+        queue_message += (
+            "\n\nПосле обработки эта ссылка станет активной корзиной выбранного маркетплейса "
+            "вместо предыдущей."
+        )
+
+    await message.answer(queue_message)
 
     logger.info(f"Задача добавления товаров добавлена в очередь для пользователя {user.id}")
     await state.clear()

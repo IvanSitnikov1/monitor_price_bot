@@ -79,8 +79,8 @@ def get_products_keyboard(
 
     # Добавляем товары
     for product in products:
-        # Добавляем префикс 🗑 для товаров, удалённых из корзины
-        prefix = "🗑 " if product.get('in_cart', 1) == 0 else ""
+        # Добавляем префикс для товаров, которые сейчас не отслеживаются
+        prefix = "❌ " if product.get('in_cart', 1) == 0 else ""
         button_text = f"{prefix}{product['name'][:30]}... - {product['current_price']} ₽"
         builder.button(
             text=button_text,

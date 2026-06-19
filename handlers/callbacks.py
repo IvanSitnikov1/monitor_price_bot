@@ -95,8 +95,20 @@ async def show_product_details(callback: types.CallbackQuery):
     min_price_date = datetime.fromisoformat(product['min_price_date']).strftime('%d.%m.%Y %H:%M')
     max_price_date = datetime.fromisoformat(product['max_price_date']).strftime('%d.%m.%Y %H:%M')
 
+    if product["in_cart"] == 1:
+        tracking_status = (
+            "✅ Статус: отслеживается\n"
+            "Цена обновляется, уведомления включены."
+        )
+    else:
+        tracking_status = (
+            "❌ Статус: не отслеживается\n"
+            "Цена больше не обновляется, уведомления отключены. История цен сохранена."
+        )
+
     text = (
         f"📦 {product['name']}\n\n"
+        f"{tracking_status}\n\n"
         f"📅 Начало отслеживания: {date_added}\n\n"
         f"💰 Текущая цена: {product['current_price']} ₽\n"
         f"📉 Минимальная цена: {product['min_price']} ₽ ({min_price_date})\n"
@@ -151,7 +163,9 @@ async def filter_products(callback: types.CallbackQuery):
         return
 
     await callback.message.edit_text(
-        "📋 Список отслеживаемых товаров:",
+        "📋 Товары и история цен\n\n"
+        "Без отметки ❌ — отслеживается.\n"
+        "❌ — не отслеживается; показаны последняя цена и сохранённая история.",
         reply_markup=get_products_keyboard(products, marketplace_filter=marketplace)
     )
     await callback.answer()
@@ -182,7 +196,9 @@ async def delete_product_handler(callback: types.CallbackQuery):
             # Показываем обновленный список товаров
             await _show_updated_products_after_delete(
                 callback.message,
-                "📋 Список отслеживаемых товаров:",
+                "📋 Товары и история цен\n\n"
+                "Без отметки ❌ — отслеживается.\n"
+                "❌ — не отслеживается; показаны последняя цена и сохранённая история.",
                 reply_markup=get_products_keyboard(products, marketplace_filter=None)
             )
 

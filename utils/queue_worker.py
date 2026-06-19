@@ -498,13 +498,25 @@ class TaskQueue:
                 removed_count += 1
                 logger.info(f"Товар помечен как удалённый из корзины: {product['name']}")
 
+        match marketplace:
+            case Marketplace.OZON.value:
+                marketplace_name = "Ozon"
+            case Marketplace.WILDBERRIES.value:
+                marketplace_name = "Wildberries"
+            case _:
+                marketplace_name = marketplace
+
         # Отправляем итоговое уведомление
-        summary = f"✅ Корзина обработана!\n\n"
-        summary += f"📦 Всего товаров в корзине: {len(cart_products)}\n"
+        summary = f"✅ Корзина {marketplace_name} синхронизирована!\n\n"
+        summary += (
+            f"Эта ссылка теперь используется как единственная активная корзина "
+            f"{marketplace_name}.\n\n"
+        )
+        summary += f"📦 Товаров в активной корзине: {len(cart_products)}\n"
         summary += f"➕ Добавлено новых: {added_count}\n"
         summary += f"🔄 Обновлено цен: {updated_count}\n"
-        summary += f"🔙 Восстановлено: {restored_count}\n"
-        summary += f"➖ Удалено из корзины: {removed_count}\n"
+        summary += f"↩️ Возобновлено отслеживание: {restored_count}\n"
+        summary += f"❌ Перестали отслеживаться: {removed_count}\n"
 
         if added_count > 0:
             summary += f"\n🆕 Новые товары:\n"
@@ -513,13 +525,17 @@ class TaskQueue:
                     summary += f"• {cart_product['name']} - {cart_product['price']}\n"
 
         if restored_count > 0:
-            summary += f"\n🔙 Восстановленные товары:\n"
+            summary += "\n↩️ Отслеживание возобновлено:\n"
             for product in current_products:
                 if product["in_cart"] == 0 and product["name"] in cart_products_dict:
                     summary += f"• {product['name']}\n"
 
         if removed_count > 0:
-            summary += f"\n➖ Удалённые из корзины (сохранены с историей):\n"
+            summary += (
+                "\n❌ Перестали отслеживаться:\n"
+                "Эти товары отсутствуют в активной корзине. Их последняя цена и история "
+                "сохранены, но новые цены и уведомления поступать не будут.\n"
+            )
             for product in current_products:
                 if product["in_cart"] == 1 and product["name"] not in cart_products_dict:
                     summary += f"• {product['name']}\n"

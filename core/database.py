@@ -229,6 +229,7 @@ async def get_product_details(product_id: int, user_id: int) -> dict | None:
                 p.url,
                 p.image_url,
                 p.image_path,
+                p.in_cart,
                 p.date_added,
                 (SELECT price FROM price_history
                  WHERE product_id = p.id
