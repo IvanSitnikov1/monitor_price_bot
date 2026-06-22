@@ -10,6 +10,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import config
 from core.database import delete_user_auth_data, get_auth_request, save_auth_request
+from keyboards.inline import get_auth_menu_keyboard
 from .ozon import notify_admin_about_auth_request
 from .wildberries import notify_admin_about_wildberries_auth_request
 from loggers import logger
@@ -17,20 +18,6 @@ from utils.states import LoginState
 
 
 auth_common_router = Router()
-
-
-def _get_auth_menu_keyboard() -> InlineKeyboardMarkup:
-    """Создаёт меню выбора авторизации."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Авторизоваться в Ozon", callback_data="auth_ozon_start")],
-        [
-            InlineKeyboardButton(
-                text="✅ Авторизоваться в Wildberries",
-                callback_data="auth_wb_start"
-            )
-        ],
-        [InlineKeyboardButton(text="🗑 Удалить мои данные", callback_data="auth_delete_data")]
-    ])
 
 
 async def _show_auth_marketplace_menu(message: types.Message):
@@ -42,7 +29,7 @@ async def _show_auth_marketplace_menu(message: types.Message):
     )
     await message.answer(
         auth_menu_text,
-        reply_markup=_get_auth_menu_keyboard(),
+        reply_markup=get_auth_menu_keyboard(),
         parse_mode="HTML"
     )
 
@@ -146,7 +133,7 @@ async def accept_agreement(callback: types.CallbackQuery, state: FSMContext):
         "✅ Соглашение принято.\n\n"
         "Теперь выберите маркетплейс для авторизации.\n"
         "Для Avito авторизация не требуется.",
-        reply_markup=_get_auth_menu_keyboard(),
+        reply_markup=get_auth_menu_keyboard(),
         parse_mode="HTML"
     )
 
@@ -329,10 +316,10 @@ async def process_phone(message: types.Message, state: FSMContext):
             )
             await message.answer(
                 "✅ Запрос на авторизацию Wildberries отправлен администратору.\n"
-                "Ожидайте завершения авторизации."
+                "Ожидайте код авторизации в уведомлениях приложения Wildberries или в смс."
             )
             logger.info(f"Запрос на авторизацию Wildberries от пользователя {user.id} сохранён")
-        case _:
+        case "ozon":
             await notify_admin_about_auth_request(
                 bot=message.bot,
                 user_id=user.id,
@@ -341,7 +328,7 @@ async def process_phone(message: types.Message, state: FSMContext):
             )
             await message.answer(
                 "✅ Запрос на авторизацию отправлен администратору.\n"
-                "Ожидайте QR-код для авторизации."
+                "Ожидайте ссылку для авторизации."
             )
             logger.info(f"Запрос на авторизацию Ozon от пользователя {user.id} сохранён")
 

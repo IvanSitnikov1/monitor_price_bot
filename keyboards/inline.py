@@ -75,45 +75,22 @@ def get_products_keyboard(
 
         builder.button(text=text, callback_data=callback_data)
 
-    builder.adjust(4)  # 4 фильтра в ряд
-
     # Добавляем товары
     for product in products:
         # Добавляем префикс для товаров, которые сейчас не отслеживаются
         prefix = "❌ " if product.get('in_cart', 1) == 0 else ""
         button_text = f"{prefix}{product['name'][:30]}... - {product['current_price']} ₽"
-        builder.button(
-            text=button_text,
-            callback_data=f"product:{product['id']}"
-        )
+        builder.button(text=button_text, callback_data=f"product:{product['id']}")
         builder.adjust(4, 1)  # Фильтры в ряд, товары по одному
 
     return builder.as_markup()
 
 
 def get_product_detail_keyboard(product_id: int) -> InlineKeyboardMarkup:
-    """
-    Создает инлайн-клавиатуру для детального просмотра товара.
-
-    Args:
-        product_id: ID товара
-
-    Returns:
-        InlineKeyboardMarkup с кнопками "История цен" и "Удалить"
-    """
+    """Создает инлайн-клавиатуру для детального просмотра товара."""
     builder = InlineKeyboardBuilder()
-
-    builder.button(
-        text="📊 История цен",
-        callback_data=f"history:{product_id}"
-    )
-    builder.button(
-        text="🗑 Удалить",
-        callback_data=f"delete:{product_id}"
-    )
-
-    builder.adjust(2)
-
+    builder.button(text="📊 История цен", callback_data=f"history:{product_id}")
+    builder.button(text="🗑 Удалить", callback_data=f"delete:{product_id}")
     return builder.as_markup()
 
 
@@ -122,6 +99,16 @@ def get_price_history_keyboard(product_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(
         text="📥 Скачать подробную историю",
-        callback_data=f"history_download:{product_id}"
+        callback_data=f"history_download:{product_id}",
     )
+    return builder.as_markup()
+
+
+def get_auth_menu_keyboard() -> InlineKeyboardMarkup:
+    """Создаёт меню выбора авторизации."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Авторизоваться в Ozon", callback_data="auth_ozon_start")
+    builder.button(text="✅ Авторизоваться в Wildberries", callback_data="auth_wb_start")
+    builder.button(text="🗑 Удалить мои данные", callback_data="auth_delete_data")
+    builder.adjust(1)
     return builder.as_markup()
