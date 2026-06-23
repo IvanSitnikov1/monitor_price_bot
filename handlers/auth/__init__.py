@@ -6,9 +6,9 @@ from .wildberries import auth_wildberries_router
 
 
 auth_router = Router()
-auth_router.include_router(auth_common_router)
 auth_router.include_router(auth_ozon_router)
 auth_router.include_router(auth_wildberries_router)
+auth_router.include_router(auth_common_router)
 
 __all__ = [
     "auth_router",

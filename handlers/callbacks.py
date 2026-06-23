@@ -166,7 +166,7 @@ async def filter_products(callback: types.CallbackQuery):
         "📋 Товары и история цен\n\n"
         "Без отметки ❌ — отслеживается.\n"
         "❌ — не отслеживается; показаны последняя цена и сохранённая история.",
-        reply_markup=get_products_keyboard(products, marketplace_filter=marketplace)
+        reply_markup=get_products_keyboard(products, marketplace_filter=filter_value)
     )
     await callback.answer()
 
@@ -199,7 +199,7 @@ async def delete_product_handler(callback: types.CallbackQuery):
                 "📋 Товары и история цен\n\n"
                 "Без отметки ❌ — отслеживается.\n"
                 "❌ — не отслеживается; показаны последняя цена и сохранённая история.",
-                reply_markup=get_products_keyboard(products, marketplace_filter=None)
+                reply_markup=get_products_keyboard(products, marketplace_filter="all")
             )
 
         await callback.answer("✅ Товар удален", show_alert=False)

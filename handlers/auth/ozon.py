@@ -11,29 +11,6 @@ from utils.states import AuthorizationInProgress
 auth_ozon_router = Router()
 
 
-async def notify_admin_about_auth_request(bot, user_id: int, username: str | None, phone: str):
-    """Отправляет админу уведомление о запросе авторизации Ozon."""
-    text = (
-        f"🔐 <b>Запрос на авторизацию Ozon</b>\n\n"
-        f"Пользователь: @{username or 'без username'}\n"
-        f"ID: <code>{user_id}</code>\n"
-        f"Телефон: <code>{phone}</code>\n\n"
-        f"✅ Пользователь принял соглашение"
-    )
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="✅ Авторизовать",
-                callback_data=f"auth_ozon_approve:{user_id}"
-            ),
-            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"auth_ozon_reject:{user_id}")
-        ]
-    ])
-
-    await bot.send_message(config.ADMIN_USER_ID, text, reply_markup=keyboard, parse_mode="HTML")
-
-
 @auth_ozon_router.callback_query(F.data.startswith("auth_ozon_approve:"))
 async def approve_authorization(callback: types.CallbackQuery, state: FSMContext):
     """Открывает браузер Ozon для ручной авторизации админом."""

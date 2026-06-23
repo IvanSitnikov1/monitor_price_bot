@@ -104,7 +104,7 @@ async def list_positions(message: types.Message, state: FSMContext):
         "📋 Товары и история цен\n\n"
         "Без отметки ❌ — отслеживается.\n"
         "❌ — не отслеживается; показаны последняя цена и сохранённая история.",
-        reply_markup=get_products_keyboard(products, marketplace_filter=None)
+        reply_markup=get_products_keyboard(products, marketplace_filter="all")
     )
 
 

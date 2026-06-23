@@ -1,44 +1,7 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from core.models import Marketplace
-
-
-def get_marketplace_filter_keyboard(
-    current_filter: str | None = None
-) -> InlineKeyboardMarkup:
-    """
-    Создает инлайн-клавиатуру с фильтрами по маркетплейсам.
-
-    Args:
-        current_filter: Текущий активный фильтр (маркетплейс или None для "Все")
-
-    Returns:
-        InlineKeyboardMarkup с кнопками фильтров
-    """
-    builder = InlineKeyboardBuilder()
-
-    filters = [
-        ("Все", "filter:all"),
-        ("Ozon", f"filter:{Marketplace.OZON.value}"),
-        ("Wildberries", f"filter:{Marketplace.WILDBERRIES.value}"),
-        ("Avito", f"filter:{Marketplace.AVITO.value}"),
-    ]
-
-    for label, callback_data in filters:
-        # Добавляем галочку к активному фильтру
-        filter_value = callback_data.split(":")[1]
-        is_active = (
-            (current_filter is None and filter_value == "all") or
-            (current_filter == filter_value)
-        )
-        text = f"✅ {label}" if is_active else label
-
-        builder.button(text=text, callback_data=callback_data)
-
-    builder.adjust(4)  # 4 кнопки в ряд
-
-    return builder.as_markup()
 
 
 def get_products_keyboard(
@@ -60,9 +23,9 @@ def get_products_keyboard(
     # Добавляем фильтры
     filters = [
         ("Все", "filter:all"),
-        ("Ozon", f"filter:{Marketplace.OZON.value}"),
-        ("Wildberries", f"filter:{Marketplace.WILDBERRIES.value}"),
-        ("Avito", f"filter:{Marketplace.AVITO.value}"),
+        ("Ozon", f"filter:{Marketplace.OZON}"),
+        ("Wildberries", f"filter:{Marketplace.WILDBERRIES}"),
+        ("Avito", f"filter:{Marketplace.AVITO}"),
     ]
 
     for label, callback_data in filters:

@@ -10,14 +10,42 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import config
 from core.database import delete_user_auth_data, get_auth_request, save_auth_request
+from core.models import Marketplace
 from keyboards.inline import get_auth_menu_keyboard
-from .ozon import notify_admin_about_auth_request
-from .wildberries import notify_admin_about_wildberries_auth_request
 from loggers import logger
 from utils.states import LoginState
 
 
 auth_common_router = Router()
+
+
+async def notify_admin_auth_request(
+    bot,
+    user_id: int,
+    username: str | None,
+    phone: str,
+    marketplace: Marketplace,
+):
+    """Отправляет админу уведомление о запросе авторизации Wildberries."""
+    text = (
+        f"🔐 <b>Запрос на авторизацию {marketplace}</b>\n\n"
+        f"Пользователь: @{username or 'без username'}\n"
+        f"ID: <code>{user_id}</code>\n"
+        f"Телефон: <code>{phone}</code>\n\n"
+        f"✅ Пользователь принял соглашение"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=f"✅ Авторизовать {marketplace}",
+                callback_data=f"auth_{marketplace}_approve:{user_id}"
+            ),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"auth_{marketplace}_reject:{user_id}")
+        ]
+    ])
+
+    await bot.send_message(config.ADMIN_USER_ID, text, reply_markup=keyboard, parse_mode="HTML")
 
 
 async def _show_auth_marketplace_menu(message: types.Message):
@@ -306,30 +334,49 @@ async def process_phone(message: types.Message, state: FSMContext):
         username=user.username
     )
 
-    match marketplace:
-        case "wildberries":
-            await notify_admin_about_wildberries_auth_request(
-                bot=message.bot,
-                user_id=user.id,
-                username=user.username,
-                phone=phone
-            )
-            await message.answer(
-                "✅ Запрос на авторизацию Wildberries отправлен администратору.\n"
-                "Ожидайте код авторизации в уведомлениях приложения Wildberries или в смс."
-            )
-            logger.info(f"Запрос на авторизацию Wildberries от пользователя {user.id} сохранён")
-        case "ozon":
-            await notify_admin_about_auth_request(
-                bot=message.bot,
-                user_id=user.id,
-                username=user.username,
-                phone=phone
-            )
-            await message.answer(
-                "✅ Запрос на авторизацию отправлен администратору.\n"
-                "Ожидайте ссылку для авторизации."
-            )
-            logger.info(f"Запрос на авторизацию Ozon от пользователя {user.id} сохранён")
+    await notify_admin_auth_request(
+        bot=message.bot,
+        user_id=user.id,
+        username=user.username,
+        phone=phone,
+        marketplace=marketplace,
+    )
+
+    if marketplace == Marketplace.OZON:
+        await message.answer(
+            "✅ Запрос на авторизацию отправлен администратору.\n"
+            "Ожидайте ссылку для авторизации."
+        )
+        await state.clear()
+
+    if marketplace == Marketplace.WILDBERRIES:
+        await message.answer(
+            "✅ Запрос на авторизацию отправлен администратору.\n"
+            "Ожидайте код авторизации в уведомлениях приложения Wildberries или в смс.\n"
+            "Отправьте полученный код в чат."
+        )
+        await state.set_state(LoginState.waiting_for_wb_code)
+
+
+@auth_common_router.message(LoginState.waiting_for_wb_code, F.text)
+async def process_wb_code(message: types.Message, state: FSMContext):
+    """Принимает код авторизации wb и отправляет администратору."""
+    user = message.from_user
+
+    await message.bot.send_message(
+        chat_id=config.ADMIN_USER_ID,
+        text=(
+            "📩 <b>Код авторизации Wildberries</b>\n\n"
+            f"👤 Пользователь: @{user.username or 'без username'}\n"
+            f"🆔 ID: <code>{user.id}</code>\n"
+            f"🔐 Код: <code>{message.text}</code>"
+        ),
+        parse_mode="HTML",
+    )
+
+    await message.answer(
+        "✅ Код отправлен администратору.\n"
+        "Ожидайте завершения авторизации."
+    )
 
     await state.clear()

@@ -11,35 +11,7 @@ from utils.states import AuthorizationInProgress
 auth_wildberries_router = Router()
 
 
-async def notify_admin_about_wildberries_auth_request(
-    bot,
-    user_id: int,
-    username: str | None,
-    phone: str
-):
-    """Отправляет админу уведомление о запросе авторизации Wildberries."""
-    text = (
-        f"🔐 <b>Запрос на авторизацию Wildberries</b>\n\n"
-        f"Пользователь: @{username or 'без username'}\n"
-        f"ID: <code>{user_id}</code>\n"
-        f"Телефон: <code>{phone}</code>\n\n"
-        f"✅ Пользователь принял соглашение"
-    )
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="✅ Авторизовать Wildberries",
-                callback_data=f"auth_wb_approve:{user_id}"
-            ),
-            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"auth_wb_reject:{user_id}")
-        ]
-    ])
-
-    await bot.send_message(config.ADMIN_USER_ID, text, reply_markup=keyboard, parse_mode="HTML")
-
-
-@auth_wildberries_router.callback_query(F.data.startswith("auth_wb_approve:"))
+@auth_wildberries_router.callback_query(F.data.startswith("auth_wildberries_approve:"))
 async def approve_wildberries_authorization(callback: types.CallbackQuery, state: FSMContext):
     """Открывает браузер Wildberries для ручной авторизации админом."""
     user = callback.from_user
@@ -80,7 +52,7 @@ async def approve_wildberries_authorization(callback: types.CallbackQuery, state
             auth_marketplace="wildberries",
             auth_context=auth_context
         )
-        await state.set_state(AuthorizationInProgress.waiting_for_confirmation)
+        await state.set_state(AuthorizationInProgress.waiting_for_wb_code)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
@@ -93,12 +65,9 @@ async def approve_wildberries_authorization(callback: types.CallbackQuery, state
 
         await callback.message.edit_text(
             f"✅ Браузер Wildberries открыт для пользователя {user_id}\n\n"
-            "Выполните вход вручную: нажмите вход, введите телефон и код "
-            "из уведомления приложения Wildberries.\n"
-            "После успешного входа нажмите кнопку ниже.",
-            reply_markup=keyboard
+            "Выполните вход вручную и дождитесь кода от пользователя",
+            keyboard=keyboard,
         )
-        await callback.answer()
 
     except Exception as e:
         logger.error(
@@ -112,7 +81,7 @@ async def approve_wildberries_authorization(callback: types.CallbackQuery, state
         )
 
 
-@auth_wildberries_router.callback_query(F.data.startswith("auth_wb_reject:"))
+@auth_wildberries_router.callback_query(F.data.startswith("auth_wildberries_reject:"))
 async def reject_wildberries_authorization(callback: types.CallbackQuery):
     """Отклоняет запрос авторизации Wildberries."""
     user = callback.from_user

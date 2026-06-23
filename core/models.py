@@ -1,9 +1,9 @@
-from enum import Enum
+from enum import StrEnum
 from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-class Marketplace(str, Enum):
+class Marketplace(StrEnum):
     """Поддерживаемые маркетплейсы"""
     OZON = "ozon"
     WILDBERRIES = "wildberries"
