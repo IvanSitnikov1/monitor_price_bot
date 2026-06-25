@@ -394,6 +394,33 @@ async def _extract_ozon_price_from_block(block, product_index: int) -> str | Non
     return None
 
 
+async def _is_ozon_product_unavailable(block, product_index: int) -> bool:
+    """Проверяет, что товар Ozon в корзине закончился или недоступен."""
+    unavailable_markers = (
+        "товар закончился",
+        "закончился",
+        "нет в наличии",
+        "товар недоступен",
+        "сообщить о поступлении",
+        "похожий товар",
+    )
+
+    try:
+        block_text = await block.inner_text(timeout=2000)
+    except Exception as e:
+        logger.warning(
+            f"Не удалось проверить доступность товара {product_index + 1}: {e}"
+        )
+        return False
+
+    normalized_text = re.sub(r"\s+", " ", block_text).lower()
+    if any(marker in normalized_text for marker in unavailable_markers):
+        logger.info(f"Товар {product_index + 1}: распознан как закончившийся")
+        return True
+
+    return False
+
+
 async def _extract_product_details_from_block(
     page,
     block,
@@ -511,6 +538,16 @@ async def _scrape_ozon_cart(
                         f"Товар {i+1}: {name} - {price} - "
                         f"{product.get('url')} - {product.get('image_url')}"
                     )
+                elif name and await _is_ozon_product_unavailable(block, i):
+                    variant_text = await _extract_product_variant_from_block(block, i)
+                    product = {
+                        "name": name,
+                        "price": None,
+                        "variant_text": variant_text,
+                        "unavailable": True,
+                    }
+                    products.append(product)
+                    logger.info(f"Товар {i+1}: {name} - закончился")
                 else:
                     skipped_products_count += 1
                     logger.warning(f"Товар {i+1}: пропущен (name={name}, price={price})")
@@ -817,46 +854,6 @@ async def scrape_ozon_cart(
     )
 
 
-async def _wait_for_avito_product_state(page, url: str) -> bool:
-    """Ждет смысловое состояние страницы Avito вместо полной сетевой тишины."""
-    try:
-        await page.wait_for_function(
-            """
-            () => {
-                const bodyText = document.body?.innerText || '';
-                const closedWarning = document.querySelector(
-                    '[data-marker="item-view/closed-warning"]'
-                );
-                const title = document.querySelector(
-                    '[data-marker="item-view/title-info"]'
-                )?.textContent?.trim();
-                const priceElement = document.querySelector(
-                    '[data-marker="item-view/item-price"]'
-                );
-                const price = priceElement?.getAttribute('content') ||
-                    priceElement?.textContent?.trim();
-                const blockedTexts = [
-                    'Доступ ограничен',
-                    'Подтвердите, что вы не робот',
-                    'Проверяем, что вы не робот'
-                ];
-                const blocked = blockedTexts.some((text) => bodyText.includes(text));
-                const closed = (closedWarning?.textContent || '').includes(
-                    'Объявление снято с публикации'
-                );
-                const unavailable = bodyText.includes('Такой страницы не существует');
-
-                return Boolean((title && price) || closed || unavailable || blocked);
-            }
-            """,
-            timeout=12000
-        )
-        return True
-    except PlaywrightTimeoutError:
-        logger.warning(f"Avito: не дождались данных объявления или состояния страницы: {url}")
-        return False
-
-
 async def scrape_avito_product(
     url: str,
     user_id: int,
@@ -872,12 +869,10 @@ async def scrape_avito_product(
         )
         await _human_delay(1, 2)
 
-        page_ready = await _wait_for_avito_product_state(page, url)
-
         try:
-            await page.wait_for_load_state("networkidle", timeout=1500)
+            await page.wait_for_load_state("networkidle", timeout=15000)
         except PlaywrightTimeoutError:
-            logger.info("Avito: фоновая загрузка продолжается, парсим доступные данные")
+            logger.warning("Avito: ожидание networkidle завершилось по тайм-ауту")
 
         await _human_like_behavior(page)
         data = await page.evaluate("""
@@ -931,15 +926,11 @@ async def scrape_avito_product(
 
         normalized_price = _normalize_price(data.get("price"))
         if not data.get("title") or not normalized_price:
-            if page_ready:
-                logger.warning(f"Avito: не удалось извлечь название или цену: {url}")
-            else:
-                logger.warning(
-                    f"Avito: данные объявления не появились после ожидания: {url}"
-                )
+            logger.warning(f"Avito: не удалось извлечь название или цену: {url}")
             return None
 
         price = int(re.sub(r"\D", "", normalized_price))
+        logger.info(f"Avito: объявление распарсено: {data['title']} - {price} ₽")
 
         return {
             "name": data["title"],

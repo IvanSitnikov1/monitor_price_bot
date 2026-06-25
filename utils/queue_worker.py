@@ -102,6 +102,17 @@ def _get_stored_cart_item_key(product: dict, marketplace: str) -> str:
     return product.get("cart_item_key") or _build_cart_item_key(product, marketplace)
 
 
+def _is_legacy_name_only_product(product: dict, marketplace: str) -> bool:
+    """Проверяет старую запись Ozon без надежного ключа варианта."""
+    if marketplace != Marketplace.OZON.value or product.get("variant_text"):
+        return False
+
+    stored_key = product.get("cart_item_key")
+    name_key = _build_cart_item_key(product, marketplace)
+
+    return not stored_key or stored_key == name_key
+
+
 def _unpack_cart_parse_result(result) -> tuple[list[dict], bool, int]:
     """Возвращает товары и признак частичного парсинга корзины."""
     if isinstance(result, dict):
@@ -118,6 +129,9 @@ def _index_current_products_by_key(products: list[dict], marketplace: str) -> di
     grouped_products: dict[str, list[dict]] = {}
 
     for product in products:
+        if _is_legacy_name_only_product(product, marketplace):
+            continue
+
         key = _get_stored_cart_item_key(product, marketplace)
         grouped_products.setdefault(key, []).append(product)
 
@@ -133,6 +147,43 @@ def _index_current_products_by_key(products: list[dict], marketplace: str) -> di
         )
 
     return unique_products
+
+
+def _find_legacy_product_by_name_and_price(
+    products_by_name: dict[str, list[dict]],
+    product_name: str,
+    processed_product_ids: set[int],
+    marketplace: str,
+    new_price: int | None
+) -> dict | None:
+    """Ищет старую запись по имени, цене или порядку для миграции старых дублей."""
+    same_name_products = [
+        product for product in products_by_name.get(product_name, [])
+        if product["id"] not in processed_product_ids
+        and _is_legacy_name_only_product(product, marketplace)
+    ]
+
+    if len(same_name_products) == 1:
+        return same_name_products[0]
+
+    if len(same_name_products) > 1 and new_price is not None:
+        same_price_products = [
+            product for product in same_name_products
+            if product.get("current_price") == new_price
+        ]
+        if len(same_price_products) == 1:
+            logger.info(
+                f"Старая позиция сопоставлена по названию и цене: {product_name}"
+            )
+            return same_price_products[0]
+
+    if len(same_name_products) > 1:
+        logger.info(
+            f"Старая позиция сопоставлена по названию и порядку: {product_name}"
+        )
+        return same_name_products[0]
+
+    return None
 
 
 def _format_product_title(product: dict) -> str:
@@ -470,6 +521,9 @@ class TaskQueue:
         price_snapshot = await get_price_snapshot(product_id)
         previous_price = price_snapshot["previous_price"]
         await update_product_price(product_id, product["price"])
+        logger.info(
+            f"✅ Цена Avito обновлена для {product['name']}: {product['price']} ₽"
+        )
 
         if previous_price is not None and product["price"] < previous_price:
             min_price = min(
@@ -623,14 +677,18 @@ class TaskQueue:
             product_name = cart_product["name"]
             cart_item_key = cart_item_keys[index]
             variant_text = cart_product.get("variant_text")
+            product_unavailable = bool(cart_product.get("unavailable"))
 
             # Извлекаем число из строки цены
-            price_match = re.search(r'([\d\s\xa0]+)', cart_product["price"])
-            if not price_match:
-                logger.warning(f"Не удалось распарсить цену: {cart_product['price']}")
-                continue
+            new_price = None
+            if not product_unavailable:
+                price_match = re.search(r'([\d\s\xa0]+)', cart_product["price"])
+                if not price_match:
+                    logger.warning(f"Не удалось распарсить цену: {cart_product['price']}")
+                    continue
 
-            new_price = int(re.sub(r'[\s\xa0]', '', price_match.group(1)))
+                new_price = int(re.sub(r'[\s\xa0]', '', price_match.group(1)))
+
             product_url = cart_product.get("url")
             product_image_url = cart_product.get("image_url")
 
@@ -640,22 +698,26 @@ class TaskQueue:
             # Совместимость со старыми записями без ключа: восстанавливаем только
             # однозначное совпадение по названию, чтобы не сливать разные варианты.
             if not existing_product:
-                same_name_products = [
-                    product for product in current_products_by_name.get(product_name, [])
-                    if product["id"] not in processed_product_ids
-                    and not product.get("cart_item_key")
-                ]
-                if len(same_name_products) == 1:
-                    existing_product = same_name_products[0]
-                elif len(same_name_products) > 1:
-                    logger.warning(
-                        f"Неоднозначное совпадение по названию, создаем новую позицию: "
-                        f"{product_name}"
-                    )
+                existing_product = _find_legacy_product_by_name_and_price(
+                    current_products_by_name,
+                    product_name,
+                    processed_product_ids,
+                    marketplace,
+                    new_price
+                )
 
             if existing_product:
                 product_id = existing_product["id"]
                 processed_product_ids.add(product_id)
+
+                if product_unavailable:
+                    if existing_product["in_cart"] == 1:
+                        await mark_product_not_in_cart(product_id)
+                        removed_count += 1
+                        removed_product_ids.add(product_id)
+                        logger.info(f"Товар закончился и отключен: {product_name}")
+                    await update_product_cart_identity(product_id, variant_text, cart_item_key)
+                    continue
 
                 # Если товар был удалён из корзины ранее — восстанавливаем
                 if existing_product["in_cart"] == 0:
@@ -680,6 +742,10 @@ class TaskQueue:
 
             # Если товар новый — добавляем
             else:
+                if product_unavailable:
+                    logger.info(f"Закончившийся новый товар не добавлен: {product_name}")
+                    continue
+
                 product_id = await add_product(
                     name=product_name,
                     price=new_price,
@@ -903,6 +969,16 @@ class TaskQueue:
             product_name = cart_product["name"]
             cart_item_key = cart_item_keys[index]
             variant_text = cart_product.get("variant_text")
+            product_unavailable = bool(cart_product.get("unavailable"))
+
+            new_price = None
+            if not product_unavailable:
+                price_match = re.search(r'([\d\s\xa0]+)', cart_product["price"])
+                if not price_match:
+                    logger.warning(f"Не удалось распарсить цену: {cart_product['price']}")
+                    continue
+
+                new_price = int(re.sub(r'[\s\xa0]', '', price_match.group(1)))
 
             # Если товар есть в БД
             existing_product = current_products_by_key.get(cart_item_key)
@@ -910,22 +986,26 @@ class TaskQueue:
             # Совместимость со старыми записями без ключа: восстанавливаем только
             # однозначное совпадение по названию, чтобы не сливать разные варианты.
             if not existing_product:
-                same_name_products = [
-                    product for product in current_products_by_name.get(product_name, [])
-                    if product["id"] not in processed_product_ids
-                    and not product.get("cart_item_key")
-                ]
-                if len(same_name_products) == 1:
-                    existing_product = same_name_products[0]
-                elif len(same_name_products) > 1:
-                    logger.warning(
-                        f"Неоднозначное совпадение по названию при обновлении: "
-                        f"{product_name}"
-                    )
+                existing_product = _find_legacy_product_by_name_and_price(
+                    current_products_by_name,
+                    product_name,
+                    processed_product_ids,
+                    marketplace,
+                    new_price
+                )
 
             if existing_product:
                 product_id = existing_product["id"]
                 processed_product_ids.add(product_id)
+
+                if product_unavailable:
+                    if existing_product["in_cart"] == 1:
+                        await mark_product_not_in_cart(product_id)
+                        removed_count += 1
+                        removed_product_ids.add(product_id)
+                        logger.info(f"Товар закончился и отключен: {product_name}")
+                    await update_product_cart_identity(product_id, variant_text, cart_item_key)
+                    continue
 
                 # Если товар был удалён из корзины ранее — восстанавливаем
                 if existing_product["in_cart"] == 0:
@@ -933,14 +1013,6 @@ class TaskQueue:
                     restored_count += 1
                     restored_product_ids.add(product_id)
                     logger.info(f"Восстановлен товар в корзине: {product_name}")
-
-                # Извлекаем число из строки цены
-                price_match = re.search(r'([\d\s\xa0]+)', cart_product["price"])
-                if not price_match:
-                    logger.warning(f"Не удалось распарсить цену: {cart_product['price']}")
-                    continue
-
-                new_price = int(re.sub(r'[\s\xa0]', '', price_match.group(1)))
 
                 price_snapshot = await get_price_snapshot(product_id)
                 previous_price = price_snapshot["previous_price"]
