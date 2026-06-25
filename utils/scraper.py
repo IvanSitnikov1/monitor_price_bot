@@ -328,6 +328,72 @@ async def _extract_product_variant_from_block(block, product_index: int) -> str 
     return None
 
 
+def _normalize_ozon_price_text(price_text: str | None) -> str | None:
+    """Извлекает цену Ozon из текста, где явно указаны рубли."""
+    if not price_text or "₽" not in price_text:
+        return None
+
+    match = re.search(r"(\d[\d\s\xa0]*)\s*₽", price_text)
+    if not match:
+        return None
+
+    price_digits = re.sub(r"[\s\xa0]", "", match.group(1))
+    if not price_digits:
+        return None
+
+    return f"{price_digits} ₽"
+
+
+async def _extract_ozon_price_from_block(block, product_index: int) -> str | None:
+    """Извлекает цену товара Ozon из текущего блока с резервными селекторами."""
+    price_selectors = [
+        "div.checkout_t span.tsHeadline400Small",
+        "div.checkout_t span:has-text('₽')",
+        "span.tsHeadline400Small:has-text('₽')",
+        "span:has-text('₽')",
+    ]
+
+    for selector in price_selectors:
+        try:
+            elements = block.locator(selector)
+            count = await elements.count()
+            for index in range(count):
+                price_text = await elements.nth(index).text_content(timeout=1000)
+                price = _normalize_ozon_price_text(price_text)
+                if price:
+                    if selector != price_selectors[0]:
+                        logger.info(
+                            f"Цена товара {product_index + 1} извлечена "
+                            f"резервным селектором: {selector}"
+                        )
+                    return price
+        except Exception as e:
+            logger.warning(
+                f"Не удалось извлечь цену товара {product_index + 1} "
+                f"селектором {selector}: {e}"
+            )
+
+    try:
+        block_text = await block.inner_text(timeout=2000)
+        ignored_fragments = ("итого", "доставка", "скидка", "баллы", "бонус")
+        for line in block_text.splitlines():
+            normalized_line = re.sub(r"\s+", " ", line).strip()
+            lower_line = normalized_line.lower()
+            if any(fragment in lower_line for fragment in ignored_fragments):
+                continue
+
+            price = _normalize_ozon_price_text(normalized_line)
+            if price:
+                logger.info(
+                    f"Цена товара {product_index + 1} извлечена из текста блока"
+                )
+                return price
+    except Exception as e:
+        logger.warning(f"Не удалось извлечь текст блока товара {product_index + 1}: {e}")
+
+    return None
+
+
 async def _extract_product_details_from_block(
     page,
     block,
@@ -426,23 +492,9 @@ async def _scrape_ozon_cart(
                     logger.warning(f"Не удалось извлечь название товара {i + 1}: {e}")
                     name = None
 
-                # Извлекаем цену (span.tsHeadline400Small внутри div.checkout_t)
-                try:
-                    price_element = block.locator('div.checkout_t span.tsHeadline400Small').first
-                    price_text = await price_element.text_content(timeout=3000)
-                    if price_text:
-                        # Очищаем цену от пробелов и оставляем только цифры + ₽
-                        match = re.search(r'([\d\s\xa0]+)', price_text)
-                        if match:
-                            price_str = re.sub(r'[\s\xa0]', '', match.group(1))
-                            price = f"{price_str} ₽"
-                        else:
-                            price = None
-                    else:
-                        price = None
-                except Exception as e:
-                    logger.warning(f"Не удалось извлечь цену товара {i + 1}: {e}")
-                    price = None
+                price = await _extract_ozon_price_from_block(block, i)
+                if not price:
+                    logger.warning(f"Не удалось извлечь цену товара {i + 1}")
 
                 if name and price:
                     variant_text = await _extract_product_variant_from_block(block, i)
@@ -765,6 +817,46 @@ async def scrape_ozon_cart(
     )
 
 
+async def _wait_for_avito_product_state(page, url: str) -> bool:
+    """Ждет смысловое состояние страницы Avito вместо полной сетевой тишины."""
+    try:
+        await page.wait_for_function(
+            """
+            () => {
+                const bodyText = document.body?.innerText || '';
+                const closedWarning = document.querySelector(
+                    '[data-marker="item-view/closed-warning"]'
+                );
+                const title = document.querySelector(
+                    '[data-marker="item-view/title-info"]'
+                )?.textContent?.trim();
+                const priceElement = document.querySelector(
+                    '[data-marker="item-view/item-price"]'
+                );
+                const price = priceElement?.getAttribute('content') ||
+                    priceElement?.textContent?.trim();
+                const blockedTexts = [
+                    'Доступ ограничен',
+                    'Подтвердите, что вы не робот',
+                    'Проверяем, что вы не робот'
+                ];
+                const blocked = blockedTexts.some((text) => bodyText.includes(text));
+                const closed = (closedWarning?.textContent || '').includes(
+                    'Объявление снято с публикации'
+                );
+                const unavailable = bodyText.includes('Такой страницы не существует');
+
+                return Boolean((title && price) || closed || unavailable || blocked);
+            }
+            """,
+            timeout=12000
+        )
+        return True
+    except PlaywrightTimeoutError:
+        logger.warning(f"Avito: не дождались данных объявления или состояния страницы: {url}")
+        return False
+
+
 async def scrape_avito_product(
     url: str,
     user_id: int,
@@ -780,10 +872,12 @@ async def scrape_avito_product(
         )
         await _human_delay(1, 2)
 
+        page_ready = await _wait_for_avito_product_state(page, url)
+
         try:
-            await page.wait_for_load_state("networkidle", timeout=15000)
+            await page.wait_for_load_state("networkidle", timeout=1500)
         except PlaywrightTimeoutError:
-            logger.warning("Avito: ожидание networkidle завершилось по тайм-ауту")
+            logger.info("Avito: фоновая загрузка продолжается, парсим доступные данные")
 
         await _human_like_behavior(page)
         data = await page.evaluate("""
@@ -837,7 +931,12 @@ async def scrape_avito_product(
 
         normalized_price = _normalize_price(data.get("price"))
         if not data.get("title") or not normalized_price:
-            logger.warning(f"Avito: не удалось извлечь название или цену: {url}")
+            if page_ready:
+                logger.warning(f"Avito: не удалось извлечь название или цену: {url}")
+            else:
+                logger.warning(
+                    f"Avito: данные объявления не появились после ожидания: {url}"
+                )
             return None
 
         price = int(re.sub(r"\D", "", normalized_price))
