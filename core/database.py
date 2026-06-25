@@ -1,11 +1,26 @@
 import aiosqlite
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from core.models import Marketplace
+from loggers import logger
 
 
 DB_PATH = Path("bot_database.db")
+
+
+async def _add_column_if_missing(db, table: str, column_definition: str):
+    """Добавляет колонку и игнорирует только штатную ошибку дубля."""
+    try:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN {column_definition}")
+        await db.commit()
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e).lower():
+            return
+
+        logger.error(f"Ошибка миграции таблицы {table}: {e}")
+        raise
 
 
 async def setup_database():
@@ -25,13 +40,7 @@ async def setup_database():
             )
         """)
 
-        # Миграция: добавляем поле корзины Wildberries для существующих таблиц
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN wildberries_cart_url TEXT")
-            await db.commit()
-        except Exception:
-            # Поле уже существует, игнорируем ошибку
-            pass
+        await _add_column_if_missing(db, "users", "wildberries_cart_url TEXT")
 
         await db.execute("""
             CREATE TABLE IF NOT EXISTS products (
@@ -50,53 +59,12 @@ async def setup_database():
             )
         """)
 
-        # Миграция: добавляем поле in_cart для существующих таблиц
-        try:
-            await db.execute("ALTER TABLE products ADD COLUMN in_cart INTEGER NOT NULL DEFAULT 1")
-            await db.commit()
-        except Exception:
-            # Поле уже существует, игнорируем ошибку
-            pass
-
-        # Миграция: добавляем поле image_url для существующих таблиц
-        try:
-            await db.execute("ALTER TABLE products ADD COLUMN image_url TEXT")
-            await db.commit()
-        except Exception:
-            # Поле уже существует, игнорируем ошибку
-            pass
-
-        # Миграция: добавляем поле image_path для существующих таблиц
-        try:
-            await db.execute("ALTER TABLE products ADD COLUMN image_path TEXT")
-            await db.commit()
-        except Exception:
-            # Поле уже существует, игнорируем ошибку
-            pass
-
-        # Миграция: добавляем поле url для существующих таблиц
-        try:
-            await db.execute("ALTER TABLE products ADD COLUMN url TEXT")
-            await db.commit()
-        except Exception:
-            # Поле уже существует, игнорируем ошибку
-            pass
-
-        # Миграция: добавляем характеристики варианта товара
-        try:
-            await db.execute("ALTER TABLE products ADD COLUMN variant_text TEXT")
-            await db.commit()
-        except Exception:
-            # Поле уже существует, игнорируем ошибку
-            pass
-
-        # Миграция: добавляем стабильный ключ позиции корзины
-        try:
-            await db.execute("ALTER TABLE products ADD COLUMN cart_item_key TEXT")
-            await db.commit()
-        except Exception:
-            # Поле уже существует, игнорируем ошибку
-            pass
+        await _add_column_if_missing(db, "products", "in_cart INTEGER NOT NULL DEFAULT 1")
+        await _add_column_if_missing(db, "products", "image_url TEXT")
+        await _add_column_if_missing(db, "products", "image_path TEXT")
+        await _add_column_if_missing(db, "products", "url TEXT")
+        await _add_column_if_missing(db, "products", "variant_text TEXT")
+        await _add_column_if_missing(db, "products", "cart_item_key TEXT")
 
         await db.execute("""
             CREATE TABLE IF NOT EXISTS price_history (

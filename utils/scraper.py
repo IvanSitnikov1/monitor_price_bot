@@ -350,7 +350,7 @@ async def _scrape_ozon_cart(
     product_details_extractor=None,
     is_refresh: bool = False,
     maintenance_callback=None
-) -> list[dict[str, str | None]] | str | None:
+) -> list[dict[str, str | None]] | dict[str, object] | str | None:
     """
     Парсит корзину Ozon и извлекает список товаров.
 
@@ -405,6 +405,7 @@ async def _scrape_ozon_cart(
     # Парсинг товаров из корзины
     logger.info("Начинаем извлечение товаров из корзины")
     products = []
+    skipped_products_count = 0
 
     while True:
         try:
@@ -422,7 +423,7 @@ async def _scrape_ozon_cart(
                     name = await name_element.text_content(timeout=3000)
                     name = name.strip() if name else None
                 except Exception as e:
-                    logger.warning(f"Не удалось извлечь название товара {i}: {e}")
+                    logger.warning(f"Не удалось извлечь название товара {i + 1}: {e}")
                     name = None
 
                 # Извлекаем цену (span.tsHeadline400Small внутри div.checkout_t)
@@ -440,7 +441,7 @@ async def _scrape_ozon_cart(
                     else:
                         price = None
                 except Exception as e:
-                    logger.warning(f"Не удалось извлечь цену товара {i}: {e}")
+                    logger.warning(f"Не удалось извлечь цену товара {i + 1}: {e}")
                     price = None
 
                 if name and price:
@@ -459,6 +460,7 @@ async def _scrape_ozon_cart(
                         f"{product.get('url')} - {product.get('image_url')}"
                     )
                 else:
+                    skipped_products_count += 1
                     logger.warning(f"Товар {i+1}: пропущен (name={name}, price={price})")
 
         except Exception as e:
@@ -482,7 +484,21 @@ async def _scrape_ozon_cart(
         # Если товары найдены или блокировки нет — выходим из цикла
         break
 
-    return products if products else None
+    if not products:
+        return None
+
+    if skipped_products_count > 0:
+        logger.warning(
+            f"Корзина Ozon распарсена частично: товаров={len(products)}, "
+            f"пропущено={skipped_products_count}"
+        )
+        return {
+            "products": products,
+            "partial": True,
+            "skipped_count": skipped_products_count,
+        }
+
+    return products
 
 
 async def _check_wildberries_block(page) -> bool:

@@ -56,6 +56,9 @@ def _build_cart_item_key(product: dict, marketplace: str) -> str:
     if variant_part:
         return f"{marketplace}|name:{name_part}|variant:{variant_part}"
 
+    if marketplace == Marketplace.OZON.value:
+        return f"{marketplace}|name:{name_part}"
+
     for fallback_field in ("url", "image_url"):
         fallback_part = _normalize_identity_part(product.get(fallback_field))
         if fallback_part:
@@ -88,7 +91,26 @@ def _assign_cart_item_keys(products: list[dict], marketplace: str) -> dict[int, 
 
 def _get_stored_cart_item_key(product: dict, marketplace: str) -> str:
     """Возвращает сохраненный ключ позиции или строит совместимый fallback."""
+    if marketplace == Marketplace.OZON.value and not product.get("variant_text"):
+        stored_key = product.get("cart_item_key") or ""
+        if "|occurrence:" in stored_key:
+            return stored_key
+
+        name_part = _normalize_identity_part(product.get("name"))
+        return f"{marketplace}|name:{name_part}"
+
     return product.get("cart_item_key") or _build_cart_item_key(product, marketplace)
+
+
+def _unpack_cart_parse_result(result) -> tuple[list[dict], bool, int]:
+    """Возвращает товары и признак частичного парсинга корзины."""
+    if isinstance(result, dict):
+        products = result.get("products") or []
+        partial = bool(result.get("partial"))
+        skipped_count = int(result.get("skipped_count") or 0)
+        return products, partial, skipped_count
+
+    return result or [], False, 0
 
 
 def _index_current_products_by_key(products: list[dict], marketplace: str) -> dict[str, dict]:
@@ -478,6 +500,8 @@ class TaskQueue:
 
         # Парсим корзину (до 3 попыток) с использованием BrowserManager
         cart_products = None
+        cart_parse_partial = False
+        skipped_products_count = 0
         for attempt in range(1, 4):
             logger.info(f"Попытка парсинга корзины {attempt}/3: {cart_url}")
 
@@ -533,8 +557,17 @@ class TaskQueue:
                 logger.error("Получен маркер maintenance_required - прерываем попытки парсинга")
                 return
 
-            if cart_products:
+            parsed_products, partial, skipped_count = _unpack_cart_parse_result(cart_products)
+            if parsed_products:
+                cart_products = parsed_products
+                cart_parse_partial = partial
+                skipped_products_count = skipped_count
                 logger.info(f"Корзина успешно спарсена: {len(cart_products)} товаров")
+                if cart_parse_partial:
+                    logger.warning(
+                        f"Корзина распарсена частично, пропущено блоков: "
+                        f"{skipped_products_count}"
+                    )
                 break
             else:
                 logger.warning(f"Попытка {attempt} не удалась")
@@ -633,12 +666,15 @@ class TaskQueue:
 
                 # Обновляем цену
                 await update_product_price(product_id, new_price)
-                await update_product_url(product_id, product_url)
-                await update_product_image_url(product_id, product_image_url)
+                if product_url:
+                    await update_product_url(product_id, product_url)
+                if product_image_url:
+                    await update_product_image_url(product_id, product_image_url)
                 await update_product_cart_identity(product_id, variant_text, cart_item_key)
 
                 image_path = await _download_product_image(product_image_url, user_id, product_id)
-                await update_product_image_path(product_id, image_path)
+                if image_path:
+                    await update_product_image_path(product_id, image_path)
                 updated_count += 1
                 logger.info(f"Цена обновлена для {product_name}: {new_price} ₽")
 
@@ -666,14 +702,19 @@ class TaskQueue:
                     added_item_keys.add(cart_item_key)
                     logger.info(f"Добавлен товар: {product_name} - {new_price} ₽")
 
-        # Помечаем товары, которых нет в новой корзине, как удалённые (но не удаляем из БД)
-        for product in current_products:
-            stored_key = _get_stored_cart_item_key(product, marketplace)
-            if product["in_cart"] == 1 and stored_key not in cart_keys:
-                await mark_product_not_in_cart(product["id"])
-                removed_count += 1
-                removed_product_ids.add(product["id"])
-                logger.info(f"Товар помечен как удалённый из корзины: {product['name']}")
+        if cart_parse_partial:
+            logger.warning(
+                "Пропускаем пометку отсутствующих товаров из-за частичного парсинга корзины"
+            )
+        else:
+            # Помечаем товары, которых нет в новой корзине, как удалённые (но не удаляем из БД)
+            for product in current_products:
+                stored_key = _get_stored_cart_item_key(product, marketplace)
+                if product["in_cart"] == 1 and stored_key not in cart_keys:
+                    await mark_product_not_in_cart(product["id"])
+                    removed_count += 1
+                    removed_product_ids.add(product["id"])
+                    logger.info(f"Товар помечен как удалённый из корзины: {product['name']}")
 
         match marketplace:
             case Marketplace.OZON.value:
@@ -694,6 +735,11 @@ class TaskQueue:
         summary += f"🔄 Обновлено цен: {updated_count}\n"
         summary += f"↩️ Возобновлено отслеживание: {restored_count}\n"
         summary += f"❌ Перестали отслеживаться: {removed_count}\n"
+        if cart_parse_partial:
+            summary += (
+                f"\n⚠️ Корзина обработана частично: не удалось прочитать "
+                f"{skipped_products_count} товар(ов). Отсутствующие позиции не отключались.\n"
+            )
 
         if added_count > 0:
             summary += f"\n🆕 Новые товары:\n"
@@ -740,6 +786,8 @@ class TaskQueue:
 
         # Парсим корзину (до 3 попыток) с использованием BrowserManager
         cart_products = None
+        cart_parse_partial = False
+        skipped_products_count = 0
         for attempt in range(1, 4):
             logger.info(f"Попытка парсинга корзины {attempt}/3: {cart_url}")
 
@@ -795,8 +843,17 @@ class TaskQueue:
                 logger.error("Получен маркер maintenance_required - прерываем попытки парсинга")
                 return
 
-            if cart_products:
+            parsed_products, partial, skipped_count = _unpack_cart_parse_result(cart_products)
+            if parsed_products:
+                cart_products = parsed_products
+                cart_parse_partial = partial
+                skipped_products_count = skipped_count
                 logger.info(f"Корзина успешно спарсена: {len(cart_products)} товаров")
+                if cart_parse_partial:
+                    logger.warning(
+                        f"Корзина распарсена частично, пропущено блоков: "
+                        f"{skipped_products_count}"
+                    )
                 break
             else:
                 logger.warning(f"Попытка {attempt} не удалась")
@@ -890,8 +947,10 @@ class TaskQueue:
 
                 # Обновляем цену в БД
                 await update_product_price(product_id, new_price)
-                await update_product_url(product_id, cart_product.get("url"))
-                await update_product_image_url(product_id, cart_product.get("image_url"))
+                if cart_product.get("url"):
+                    await update_product_url(product_id, cart_product.get("url"))
+                if cart_product.get("image_url"):
+                    await update_product_image_url(product_id, cart_product.get("image_url"))
                 await update_product_cart_identity(product_id, variant_text, cart_item_key)
                 updated_count += 1
                 logger.info(f"✅ Цена обновлена для {product_name}: {new_price} ₽")
@@ -919,14 +978,19 @@ class TaskQueue:
                         f"Было: {previous_price} ₽, стало: {new_price} ₽"
                     )
 
-        # Помечаем товары, которых нет в новой корзине, как удалённые (но не удаляем из БД)
-        for product in current_products:
-            stored_key = _get_stored_cart_item_key(product, marketplace)
-            if product["in_cart"] == 1 and stored_key not in cart_keys:
-                await mark_product_not_in_cart(product["id"])
-                removed_count += 1
-                removed_product_ids.add(product["id"])
-                logger.info(f"Товар помечен как удалённый из корзины: {product['name']}")
+        if cart_parse_partial:
+            logger.warning(
+                "Пропускаем пометку отсутствующих товаров из-за частичного парсинга корзины"
+            )
+        else:
+            # Помечаем товары, которых нет в новой корзине, как удалённые (но не удаляем из БД)
+            for product in current_products:
+                stored_key = _get_stored_cart_item_key(product, marketplace)
+                if product["in_cart"] == 1 and stored_key not in cart_keys:
+                    await mark_product_not_in_cart(product["id"])
+                    removed_count += 1
+                    removed_product_ids.add(product["id"])
+                    logger.info(f"Товар помечен как удалённый из корзины: {product['name']}")
 
         logger.info(
             f"Обновлено цен: {updated_count}, восстановлено: {restored_count}, "
