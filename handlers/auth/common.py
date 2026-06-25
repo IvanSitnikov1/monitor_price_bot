@@ -362,6 +362,8 @@ async def process_phone(message: types.Message, state: FSMContext):
 async def process_wb_code(message: types.Message, state: FSMContext):
     """Принимает код авторизации wb и отправляет администратору."""
     user = message.from_user
+    code = message.text.strip()
+    state_data = await state.get_data()
 
     await message.bot.send_message(
         chat_id=config.ADMIN_USER_ID,
@@ -369,10 +371,23 @@ async def process_wb_code(message: types.Message, state: FSMContext):
             "📩 <b>Код авторизации Wildberries</b>\n\n"
             f"👤 Пользователь: @{user.username or 'без username'}\n"
             f"🆔 ID: <code>{user.id}</code>\n"
-            f"🔐 Код: <code>{message.text}</code>"
+            f"🔐 Код: <code>{code}</code>"
         ),
         parse_mode="HTML",
     )
+
+    is_admin_self_wildberries_auth = (
+        user.id == config.ADMIN_USER_ID
+        and state_data.get("auth_marketplace") == Marketplace.WILDBERRIES
+    )
+    if is_admin_self_wildberries_auth:
+        await state.update_data(pending_wb_code=code)
+        await message.answer(
+            "✅ Код сохранён для авторизации Wildberries.\n"
+            "Откройте браузер по кнопке авторизации, введите код и затем нажмите "
+            "кнопку подтверждения."
+        )
+        return
 
     await message.answer(
         "✅ Код отправлен администратору.\n"
