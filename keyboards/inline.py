@@ -4,6 +4,17 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from core.models import Marketplace
 
 
+def _format_product_button_title(product: dict) -> str:
+    """Формирует короткое название товара для кнопки."""
+    name = product["name"]
+    variant_text = product.get("variant_text")
+
+    if variant_text:
+        return f"{name} ({variant_text})"
+
+    return name
+
+
 def get_products_keyboard(
     products: list[dict],
     marketplace_filter: str | None = None
@@ -42,7 +53,9 @@ def get_products_keyboard(
     for product in products:
         # Добавляем префикс для товаров, которые сейчас не отслеживаются
         prefix = "❌ " if product.get('in_cart', 1) == 0 else ""
-        button_text = f"{prefix}{product['name'][:30]}... - {product['current_price']} ₽"
+        title = _format_product_button_title(product)
+        short_title = f"{title[:30]}..." if len(title) > 30 else title
+        button_text = f"{prefix}{short_title} - {product['current_price']} ₽"
         builder.button(text=button_text, callback_data=f"product:{product['id']}")
         builder.adjust(4, 1)  # Фильтры в ряд, товары по одному
 

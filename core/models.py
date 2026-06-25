@@ -29,6 +29,16 @@ class Product(BaseModel):
         description="Локальный путь к изображению товара",
         examples=["product_images/1189033386/1.jpg"]
     )
+    variant_text: str | None = Field(
+        None,
+        description="Характеристики варианта товара из блока корзины",
+        examples=["50 RU / 34 • Хаки /1171-3/"]
+    )
+    cart_item_key: str | None = Field(
+        None,
+        description="Стабильный ключ позиции корзины",
+        examples=["ozon|шорты dlvaxty карго лето 2026|50 ru / 34 • хаки /1171-3/"]
+    )
     marketplace: Marketplace = Field(
         description="Маркетплейс товара",
         examples=["ozon"]

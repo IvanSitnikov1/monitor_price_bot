@@ -203,7 +203,8 @@ async def _extract_product_url_from_block(page, block, product_index: int) -> st
             if not popup_task.done():
                 popup_task.cancel()
             logger.warning(
-                f"Товар {product_index + 1}: popup не появился, проверяем навигацию в текущей вкладке"
+                f"Товар {product_index + 1}: popup не появился, "
+                "проверяем навигацию в текущей вкладке"
             )
 
         try:
@@ -240,7 +241,10 @@ async def _extract_product_url_from_block(page, block, product_index: int) -> st
             try:
                 await page.goto(original_url, timeout=30000, wait_until='domcontentloaded')
             except Exception as e:
-                logger.warning(f"Не удалось вернуться в корзину после товара {product_index + 1}: {e}")
+                logger.warning(
+                    f"Не удалось вернуться в корзину после товара "
+                    f"{product_index + 1}: {e}"
+                )
 
         await _close_product_pages(page)
 
@@ -287,7 +291,48 @@ async def _extract_product_image_url_from_block(block, product_index: int) -> st
     return None
 
 
-async def _extract_product_details_from_block(page, block, product_index: int) -> dict[str, str | None]:
+async def _extract_product_variant_from_block(block, product_index: int) -> str | None:
+    """Извлекает характеристики варианта товара из блока корзины Ozon."""
+    ignored_texts = {
+        "распродажа",
+        "количество ограничено",
+    }
+
+    try:
+        spans = block.locator("span.tsBodyControl300XSmall")
+        count = await spans.count()
+
+        for index in range(count):
+            text = await spans.nth(index).text_content(timeout=1000)
+            normalized_text = re.sub(r"\s+", " ", text or "").strip()
+            lower_text = normalized_text.lower()
+
+            if not normalized_text:
+                continue
+
+            if lower_text in ignored_texts:
+                continue
+
+            if re.fullmatch(r"\d+\s*ед", lower_text):
+                continue
+
+            if re.fullmatch(r"осталось\s+\d+\s*шт", lower_text):
+                continue
+
+            logger.info(f"Вариант товара {product_index + 1}: {normalized_text}")
+            return normalized_text
+
+    except Exception as e:
+        logger.warning(f"Не удалось извлечь вариант товара {product_index + 1}: {e}")
+
+    return None
+
+
+async def _extract_product_details_from_block(
+    page,
+    block,
+    product_index: int
+) -> dict[str, str | None]:
     """Извлекает дополнительные данные товара при добавлении корзины."""
     image_url = await _extract_product_image_url_from_block(block, product_index)
     product_url = await _extract_product_url_from_block(page, block, product_index)
@@ -399,7 +444,12 @@ async def _scrape_ozon_cart(
                     price = None
 
                 if name and price:
-                    product = {"name": name, "price": price}
+                    variant_text = await _extract_product_variant_from_block(block, i)
+                    product = {
+                        "name": name,
+                        "price": price,
+                        "variant_text": variant_text,
+                    }
                     if product_details_extractor:
                         product.update(await product_details_extractor(page, block, i))
 
@@ -593,6 +643,22 @@ async def scrape_wildberries_cart(
                     const priceText = normalize(
                         lowerPriceNode?.textContent || oldPriceNode?.textContent
                     );
+                    const ignoredVariantTexts = new Set([name, priceText, '']);
+                    const variantText = Array.from(
+                        node.querySelectorAll(
+                            '[class*="productDescription"], [class*="productOption"], ' +
+                            '[class*="size"], [class*="color"]'
+                        )
+                    )
+                        .map((item) => normalize(item.textContent))
+                        .filter((text) => (
+                            text &&
+                            !ignoredVariantTexts.has(text) &&
+                            text.length <= 120 &&
+                            !/^\\d+\\s*шт$/i.test(text)
+                        ))
+                        .filter((text, index, items) => items.indexOf(text) === index)
+                        .join(' • ') || null;
                     const imageUrl = absoluteUrl(
                         imageNode?.getAttribute('data-src-pb') ||
                         imageNode?.getAttribute('src') ||
@@ -610,6 +676,7 @@ async def scrape_wildberries_cart(
                     products.push({
                         name,
                         price: priceText,
+                        variant_text: variantText,
                         url,
                         image_url: imageUrl
                     });
@@ -634,6 +701,7 @@ async def scrape_wildberries_cart(
         normalized_product = {
             "name": name,
             "price": price,
+            "variant_text": product.get("variant_text"),
             "url": _normalize_image_url(product.get("url")),
             "image_url": _normalize_image_url(product.get("image_url")),
         }

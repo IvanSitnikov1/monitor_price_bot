@@ -41,6 +41,8 @@ async def setup_database():
                 url TEXT,
                 image_url TEXT,
                 image_path TEXT,
+                variant_text TEXT,
+                cart_item_key TEXT,
                 marketplace TEXT NOT NULL DEFAULT 'ozon',
                 in_cart INTEGER NOT NULL DEFAULT 1,
                 date_added TEXT NOT NULL,
@@ -75,6 +77,22 @@ async def setup_database():
         # Миграция: добавляем поле url для существующих таблиц
         try:
             await db.execute("ALTER TABLE products ADD COLUMN url TEXT")
+            await db.commit()
+        except Exception:
+            # Поле уже существует, игнорируем ошибку
+            pass
+
+        # Миграция: добавляем характеристики варианта товара
+        try:
+            await db.execute("ALTER TABLE products ADD COLUMN variant_text TEXT")
+            await db.commit()
+        except Exception:
+            # Поле уже существует, игнорируем ошибку
+            pass
+
+        # Миграция: добавляем стабильный ключ позиции корзины
+        try:
+            await db.execute("ALTER TABLE products ADD COLUMN cart_item_key TEXT")
             await db.commit()
         except Exception:
             # Поле уже существует, игнорируем ошибку
@@ -132,7 +150,9 @@ async def add_product(
     marketplace: Marketplace,
     url: str | None = None,
     image_url: str | None = None,
-    image_path: str | None = None
+    image_path: str | None = None,
+    variant_text: str | None = None,
+    cart_item_key: str | None = None
 ) -> int | None:
     """
     Добавляет новый товар для пользователя.
@@ -145,6 +165,8 @@ async def add_product(
         url: Ссылка на страницу товара
         image_url: Ссылка на изображение товара
         image_path: Локальный путь к изображению товара
+        variant_text: Характеристики варианта товара
+        cart_item_key: Стабильный ключ позиции корзины
 
     Returns:
         ID добавленного товара
@@ -158,10 +180,23 @@ async def add_product(
         # Создаем новый товар
         cursor = await db.execute(
             """
-            INSERT INTO products (user_id, name, url, image_url, image_path, marketplace, date_added)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO products (
+                user_id, name, url, image_url, image_path, variant_text, cart_item_key,
+                marketplace, date_added
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, name, url, image_url, image_path, marketplace.value, date_now)
+            (
+                user_id,
+                name,
+                url,
+                image_url,
+                image_path,
+                variant_text,
+                cart_item_key,
+                marketplace.value,
+                date_now
+            )
         )
         product_id = cursor.lastrowid
 
@@ -175,7 +210,11 @@ async def add_product(
         return product_id
 
 
-async def get_all_products(user_id: int, marketplace: str | None = None, in_cart_only: bool = True) -> list[dict]:
+async def get_all_products(
+    user_id: int,
+    marketplace: str | None = None,
+    in_cart_only: bool = True
+) -> list[dict]:
     """
     Получает список всех товаров пользователя с их текущими ценами.
 
@@ -197,6 +236,8 @@ async def get_all_products(user_id: int, marketplace: str | None = None, in_cart
                 p.url,
                 p.image_url,
                 p.image_path,
+                p.variant_text,
+                p.cart_item_key,
                 p.marketplace,
                 p.in_cart,
                 ph.price as current_price
@@ -249,18 +290,32 @@ async def get_product_details(product_id: int, user_id: int) -> dict | None:
                 p.url,
                 p.image_url,
                 p.image_path,
+                p.variant_text,
+                p.cart_item_key,
                 p.in_cart,
                 p.date_added,
                 (SELECT price FROM price_history
                  WHERE product_id = p.id
                  ORDER BY date_checked DESC LIMIT 1) as current_price,
                 (SELECT MIN(price) FROM price_history WHERE product_id = p.id) as min_price,
-                (SELECT date_checked FROM price_history
-                 WHERE product_id = p.id AND price = (SELECT MIN(price) FROM price_history WHERE product_id = p.id)
+                (SELECT date_checked
+                 FROM price_history
+                 WHERE product_id = p.id
+                 AND price = (
+                    SELECT MIN(price)
+                    FROM price_history
+                    WHERE product_id = p.id
+                 )
                  LIMIT 1) as min_price_date,
                 (SELECT MAX(price) FROM price_history WHERE product_id = p.id) as max_price,
-                (SELECT date_checked FROM price_history
-                 WHERE product_id = p.id AND price = (SELECT MAX(price) FROM price_history WHERE product_id = p.id)
+                (SELECT date_checked
+                 FROM price_history
+                 WHERE product_id = p.id
+                 AND price = (
+                    SELECT MAX(price)
+                    FROM price_history
+                    WHERE product_id = p.id
+                 )
                  LIMIT 1) as max_price_date
             FROM products p
             WHERE p.id = ? AND p.user_id = ?
@@ -284,7 +339,8 @@ async def get_all_products_for_update(marketplace: str | None = None) -> list[di
         db.row_factory = aiosqlite.Row
 
         query = """
-            SELECT id, user_id, name, url, image_url, image_path, marketplace
+            SELECT id, user_id, name, url, image_url, image_path, variant_text,
+                   cart_item_key, marketplace
             FROM products
             WHERE in_cart = 1 AND url IS NOT NULL
         """
@@ -315,7 +371,8 @@ async def get_product_by_url(
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             """
-            SELECT id, name, url, image_url, image_path, marketplace, in_cart
+            SELECT id, name, url, image_url, image_path, variant_text, cart_item_key,
+                   marketplace, in_cart
             FROM products
             WHERE user_id = ? AND url = ? AND marketplace = ?
             """,
@@ -461,6 +518,28 @@ async def update_product_image_path(product_id: int, image_path: str | None):
         await db.commit()
 
 
+async def update_product_cart_identity(
+    product_id: int,
+    variant_text: str | None,
+    cart_item_key: str | None
+):
+    """
+    Обновляет характеристики варианта и ключ позиции корзины.
+
+    Args:
+        product_id: ID товара
+        variant_text: Характеристики варианта товара
+        cart_item_key: Стабильный ключ позиции корзины
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE products SET variant_text = ?, cart_item_key = ? WHERE id = ?",
+            (variant_text, cart_item_key, product_id)
+        )
+
+        await db.commit()
+
+
 async def mark_product_not_in_cart(product_id: int) -> bool:
     """
     Помечает товар как удалённый из корзины (но сохраняет в БД с историей).
@@ -523,7 +602,8 @@ async def get_product_by_name(user_id: int, name: str) -> dict | None:
 
         cursor = await db.execute(
             """
-            SELECT id, name, url, image_url, image_path, marketplace, in_cart
+            SELECT id, name, url, image_url, image_path, variant_text, cart_item_key,
+                   marketplace, in_cart
             FROM products
             WHERE user_id = ? AND name = ?
             """,
@@ -670,7 +750,10 @@ async def save_auth_request(user_id: int, phone: str, username: str | None):
         date_now = datetime.now().isoformat()
 
         await db.execute("""
-            INSERT OR REPLACE INTO auth_requests (user_id, phone, username, request_date, status, agreement_accepted, agreement_date)
+            INSERT OR REPLACE INTO auth_requests (
+                user_id, phone, username, request_date, status, agreement_accepted,
+                agreement_date
+            )
             VALUES (?, ?, ?, ?, 'pending', 1, ?)
         """, (user_id, phone, username, date_now, date_now))
 
@@ -741,7 +824,10 @@ async def delete_user_auth_data(user_id: int):
         await db.commit()
 
         from loggers import logger
-        logger.info(f"Данные авторизации пользователя {user_id} удалены из БД (отзыв согласия в {date_now})")
+        logger.info(
+            f"Данные авторизации пользователя {user_id} удалены из БД "
+            f"(отзыв согласия в {date_now})"
+        )
 
 
 async def get_pending_auth_requests() -> list[dict]:

@@ -106,8 +106,13 @@ async def show_product_details(callback: types.CallbackQuery):
             "Цена больше не обновляется, уведомления отключены. История цен сохранена."
         )
 
-    text = (
-        f"📦 {product['name']}\n\n"
+    text = f"📦 {product['name']}\n"
+
+    if product.get("variant_text"):
+        text += f"🔎 Вариант: {product['variant_text']}\n"
+
+    text += (
+        "\n"
         f"{tracking_status}\n\n"
         f"📅 Начало отслеживания: {date_added}\n\n"
         f"💰 Текущая цена: {product['current_price']} ₽\n"
@@ -133,7 +138,9 @@ async def show_product_details(callback: types.CallbackQuery):
                 await callback.answer()
                 return
             except Exception as e:
-                logger.warning(f"Не удалось отправить локальное изображение товара {product_id}: {e}")
+                logger.warning(
+                    f"Не удалось отправить локальное изображение товара {product_id}: {e}"
+                )
         else:
             logger.warning(f"Локальный файл изображения не найден: {local_path}")
 

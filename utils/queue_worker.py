@@ -24,6 +24,7 @@ from core.database import (
     update_product_url,
     update_product_image_url,
     update_product_image_path,
+    update_product_cart_identity,
     get_price_snapshot,
     get_all_products,
     get_product_by_url,
@@ -34,7 +35,98 @@ from loggers import logger
 from config import config
 
 
-async def _download_product_image(image_url: str | None, user_id: int, product_id: int) -> str | None:
+def _normalize_identity_part(value: str | None) -> str:
+    """Нормализует часть ключа позиции корзины."""
+    if not value:
+        return ""
+
+    normalized = value.replace("ё", "е").replace("Ё", "Е").lower()
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = re.sub(r"\s+([/•.,])", r"\1", normalized)
+    normalized = re.sub(r"([/•.,])\s+", r"\1 ", normalized)
+    normalized = re.sub(r"\.(?=\s*(?:•|$))", "", normalized)
+    return normalized.strip()
+
+
+def _build_cart_item_key(product: dict, marketplace: str) -> str:
+    """Строит стабильный ключ позиции корзины без учета цены."""
+    name_part = _normalize_identity_part(product.get("name"))
+    variant_part = _normalize_identity_part(product.get("variant_text"))
+
+    if variant_part:
+        return f"{marketplace}|name:{name_part}|variant:{variant_part}"
+
+    for fallback_field in ("url", "image_url"):
+        fallback_part = _normalize_identity_part(product.get(fallback_field))
+        if fallback_part:
+            return f"{marketplace}|name:{name_part}|{fallback_field}:{fallback_part}"
+
+    return f"{marketplace}|name:{name_part}"
+
+
+def _assign_cart_item_keys(products: list[dict], marketplace: str) -> dict[int, str]:
+    """Назначает ключи товарам корзины и разруливает дубли внутри одного парсинга."""
+    seen_keys: dict[str, int] = {}
+    assigned_keys: dict[int, str] = {}
+
+    for index, product in enumerate(products):
+        base_key = _build_cart_item_key(product, marketplace)
+        seen_keys[base_key] = seen_keys.get(base_key, 0) + 1
+
+        if seen_keys[base_key] == 1:
+            assigned_keys[index] = base_key
+            continue
+
+        assigned_keys[index] = f"{base_key}|occurrence:{seen_keys[base_key]}"
+        logger.warning(
+            f"Найден дубль ключа позиции корзины: {product.get('name')} "
+            f"({seen_keys[base_key]}-е совпадение)"
+        )
+
+    return assigned_keys
+
+
+def _get_stored_cart_item_key(product: dict, marketplace: str) -> str:
+    """Возвращает сохраненный ключ позиции или строит совместимый fallback."""
+    return product.get("cart_item_key") or _build_cart_item_key(product, marketplace)
+
+
+def _index_current_products_by_key(products: list[dict], marketplace: str) -> dict[str, dict]:
+    """Индексирует сохраненные товары только по однозначным ключам."""
+    grouped_products: dict[str, list[dict]] = {}
+
+    for product in products:
+        key = _get_stored_cart_item_key(product, marketplace)
+        grouped_products.setdefault(key, []).append(product)
+
+    unique_products = {}
+    for key, items in grouped_products.items():
+        if len(items) == 1:
+            unique_products[key] = items[0]
+            continue
+
+        logger.warning(
+            f"Неоднозначный сохраненный ключ позиции корзины: {key}, "
+            f"совпадений: {len(items)}"
+        )
+
+    return unique_products
+
+
+def _format_product_title(product: dict) -> str:
+    """Формирует название товара с вариантом для пользовательских сообщений."""
+    variant_text = product.get("variant_text")
+    if variant_text:
+        return f"{product['name']} ({variant_text})"
+
+    return product["name"]
+
+
+async def _download_product_image(
+    image_url: str | None,
+    user_id: int,
+    product_id: int
+) -> str | None:
     """Скачивает изображение товара на сервер и возвращает локальный путь."""
     if not image_url:
         return None
@@ -55,7 +147,12 @@ async def _download_product_image(image_url: str | None, user_id: int, product_i
                     )
                     return None
 
-                content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+                content_type = (
+                    response.headers.get("Content-Type", "")
+                    .split(";")[0]
+                    .strip()
+                    .lower()
+                )
                 suffix = mimetypes.guess_extension(content_type) or ".jpg"
                 image_path = images_dir / f"{product_id}{suffix}"
                 image_path.write_bytes(await response.read())
@@ -464,9 +561,15 @@ class TaskQueue:
             in_cart_only=False
         )
 
-        # Создаём словари для быстрого поиска
-        current_products_dict = {p["name"]: p for p in current_products}
-        cart_products_dict = {p["name"]: p for p in cart_products}
+        # Создаём индексы для поиска по стабильному ключу позиции корзины
+        cart_item_keys = _assign_cart_item_keys(cart_products, marketplace)
+        current_products_by_key = _index_current_products_by_key(current_products, marketplace)
+        current_products_by_name: dict[str, list[dict]] = {}
+        for product in current_products:
+            current_products_by_name.setdefault(product["name"], []).append(product)
+
+        cart_keys = set(cart_item_keys.values())
+        processed_product_ids: set[int] = set()
 
         logger.info(f"Текущие товары пользователя (всего): {len(current_products)}")
         logger.info(f"Товары в корзине: {len(cart_products)}")
@@ -478,10 +581,15 @@ class TaskQueue:
         updated_count = 0
         removed_count = 0
         restored_count = 0
+        added_item_keys: set[str] = set()
+        restored_product_ids: set[int] = set()
+        removed_product_ids: set[int] = set()
 
         # Обрабатываем товары из корзины
-        for cart_product in cart_products:
+        for index, cart_product in enumerate(cart_products):
             product_name = cart_product["name"]
+            cart_item_key = cart_item_keys[index]
+            variant_text = cart_product.get("variant_text")
 
             # Извлекаем число из строки цены
             price_match = re.search(r'([\d\s\xa0]+)', cart_product["price"])
@@ -494,20 +602,40 @@ class TaskQueue:
             product_image_url = cart_product.get("image_url")
 
             # Если товар уже есть в БД
-            if product_name in current_products_dict:
-                existing_product = current_products_dict[product_name]
+            existing_product = current_products_by_key.get(cart_item_key)
+
+            # Совместимость со старыми записями без ключа: восстанавливаем только
+            # однозначное совпадение по названию, чтобы не сливать разные варианты.
+            if not existing_product:
+                same_name_products = [
+                    product for product in current_products_by_name.get(product_name, [])
+                    if product["id"] not in processed_product_ids
+                    and not product.get("cart_item_key")
+                ]
+                if len(same_name_products) == 1:
+                    existing_product = same_name_products[0]
+                elif len(same_name_products) > 1:
+                    logger.warning(
+                        f"Неоднозначное совпадение по названию, создаем новую позицию: "
+                        f"{product_name}"
+                    )
+
+            if existing_product:
                 product_id = existing_product["id"]
+                processed_product_ids.add(product_id)
 
                 # Если товар был удалён из корзины ранее — восстанавливаем
                 if existing_product["in_cart"] == 0:
                     await mark_product_in_cart(product_id)
                     restored_count += 1
+                    restored_product_ids.add(product_id)
                     logger.info(f"Восстановлен товар в корзине: {product_name}")
 
                 # Обновляем цену
                 await update_product_price(product_id, new_price)
                 await update_product_url(product_id, product_url)
                 await update_product_image_url(product_id, product_image_url)
+                await update_product_cart_identity(product_id, variant_text, cart_item_key)
 
                 image_path = await _download_product_image(product_image_url, user_id, product_id)
                 await update_product_image_path(product_id, image_path)
@@ -522,20 +650,29 @@ class TaskQueue:
                     user_id=user_id,
                     marketplace=marketplace_enum,
                     url=product_url,
-                    image_url=product_image_url
+                    image_url=product_image_url,
+                    variant_text=variant_text,
+                    cart_item_key=cart_item_key
                 )
 
                 if product_id:
-                    image_path = await _download_product_image(product_image_url, user_id, product_id)
+                    image_path = await _download_product_image(
+                        product_image_url,
+                        user_id,
+                        product_id
+                    )
                     await update_product_image_path(product_id, image_path)
                     added_count += 1
+                    added_item_keys.add(cart_item_key)
                     logger.info(f"Добавлен товар: {product_name} - {new_price} ₽")
 
         # Помечаем товары, которых нет в новой корзине, как удалённые (но не удаляем из БД)
         for product in current_products:
-            if product["in_cart"] == 1 and product["name"] not in cart_products_dict:
+            stored_key = _get_stored_cart_item_key(product, marketplace)
+            if product["in_cart"] == 1 and stored_key not in cart_keys:
                 await mark_product_not_in_cart(product["id"])
                 removed_count += 1
+                removed_product_ids.add(product["id"])
                 logger.info(f"Товар помечен как удалённый из корзины: {product['name']}")
 
         match marketplace:
@@ -560,15 +697,18 @@ class TaskQueue:
 
         if added_count > 0:
             summary += f"\n🆕 Новые товары:\n"
-            for cart_product in cart_products:
-                if cart_product["name"] not in current_products_dict:
-                    summary += f"• {cart_product['name']} - {cart_product['price']}\n"
+            for index, cart_product in enumerate(cart_products):
+                if cart_item_keys[index] in added_item_keys:
+                    summary += (
+                        f"• {_format_product_title(cart_product)} - "
+                        f"{cart_product['price']}\n"
+                    )
 
         if restored_count > 0:
             summary += "\n↩️ Отслеживание возобновлено:\n"
             for product in current_products:
-                if product["in_cart"] == 0 and product["name"] in cart_products_dict:
-                    summary += f"• {product['name']}\n"
+                if product["id"] in restored_product_ids:
+                    summary += f"• {_format_product_title(product)}\n"
 
         if removed_count > 0:
             summary += (
@@ -577,8 +717,8 @@ class TaskQueue:
                 "сохранены, но новые цены и уведомления поступать не будут.\n"
             )
             for product in current_products:
-                if product["in_cart"] == 1 and product["name"] not in cart_products_dict:
-                    summary += f"• {product['name']}\n"
+                if product["id"] in removed_product_ids:
+                    summary += f"• {_format_product_title(product)}\n"
 
         await self.bot.send_message(user_id, summary)
         logger.info(f"Корзина успешно обработана для пользователя {user_id}")
@@ -683,29 +823,58 @@ class TaskQueue:
             in_cart_only=False
         )
 
-        # Создаём словари для быстрого поиска
-        current_products_dict = {p["name"]: p for p in current_products}
-        cart_products_dict = {p["name"]: p for p in cart_products}
+        # Создаём индексы для поиска по стабильному ключу позиции корзины
+        cart_item_keys = _assign_cart_item_keys(cart_products, marketplace)
+        current_products_by_key = _index_current_products_by_key(current_products, marketplace)
+        current_products_by_name: dict[str, list[dict]] = {}
+        for product in current_products:
+            current_products_by_name.setdefault(product["name"], []).append(product)
+
+        cart_keys = set(cart_item_keys.values())
+        processed_product_ids: set[int] = set()
 
         # Счётчики изменений
         updated_count = 0
         restored_count = 0
         removed_count = 0
+        restored_product_ids: set[int] = set()
+        removed_product_ids: set[int] = set()
         price_drops = []  # Список товаров со снижением цены
 
         # Обрабатываем товары из корзины
-        for cart_product in cart_products:
+        for index, cart_product in enumerate(cart_products):
             product_name = cart_product["name"]
+            cart_item_key = cart_item_keys[index]
+            variant_text = cart_product.get("variant_text")
 
             # Если товар есть в БД
-            if product_name in current_products_dict:
-                existing_product = current_products_dict[product_name]
+            existing_product = current_products_by_key.get(cart_item_key)
+
+            # Совместимость со старыми записями без ключа: восстанавливаем только
+            # однозначное совпадение по названию, чтобы не сливать разные варианты.
+            if not existing_product:
+                same_name_products = [
+                    product for product in current_products_by_name.get(product_name, [])
+                    if product["id"] not in processed_product_ids
+                    and not product.get("cart_item_key")
+                ]
+                if len(same_name_products) == 1:
+                    existing_product = same_name_products[0]
+                elif len(same_name_products) > 1:
+                    logger.warning(
+                        f"Неоднозначное совпадение по названию при обновлении: "
+                        f"{product_name}"
+                    )
+
+            if existing_product:
                 product_id = existing_product["id"]
+                processed_product_ids.add(product_id)
 
                 # Если товар был удалён из корзины ранее — восстанавливаем
                 if existing_product["in_cart"] == 0:
                     await mark_product_in_cart(product_id)
                     restored_count += 1
+                    restored_product_ids.add(product_id)
                     logger.info(f"Восстановлен товар в корзине: {product_name}")
 
                 # Извлекаем число из строки цены
@@ -721,6 +890,9 @@ class TaskQueue:
 
                 # Обновляем цену в БД
                 await update_product_price(product_id, new_price)
+                await update_product_url(product_id, cart_product.get("url"))
+                await update_product_image_url(product_id, cart_product.get("image_url"))
+                await update_product_cart_identity(product_id, variant_text, cart_item_key)
                 updated_count += 1
                 logger.info(f"✅ Цена обновлена для {product_name}: {new_price} ₽")
 
@@ -735,7 +907,7 @@ class TaskQueue:
                         new_price
                     )
                     price_drops.append({
-                        "name": product_name,
+                        "name": _format_product_title(cart_product),
                         "new_price": new_price,
                         "previous_price": previous_price,
                         "min_price": min_price,
@@ -749,9 +921,11 @@ class TaskQueue:
 
         # Помечаем товары, которых нет в новой корзине, как удалённые (но не удаляем из БД)
         for product in current_products:
-            if product["in_cart"] == 1 and product["name"] not in cart_products_dict:
+            stored_key = _get_stored_cart_item_key(product, marketplace)
+            if product["in_cart"] == 1 and stored_key not in cart_keys:
                 await mark_product_not_in_cart(product["id"])
                 removed_count += 1
+                removed_product_ids.add(product["id"])
                 logger.info(f"Товар помечен как удалённый из корзины: {product['name']}")
 
         logger.info(
