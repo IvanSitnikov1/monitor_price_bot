@@ -544,6 +544,66 @@ class TaskQueue:
                 f"💵 Экономия: {max_price - product['price']} ₽"
             )
 
+    async def _notify_product_unavailable(
+        self,
+        user_id: int,
+        product: dict,
+        marketplace: str
+    ):
+        """Уведомляет пользователя, что товар закончился и больше не отслеживается."""
+        match marketplace:
+            case Marketplace.OZON.value:
+                marketplace_name = "Ozon"
+            case Marketplace.WILDBERRIES.value:
+                marketplace_name = "Wildberries"
+            case _:
+                marketplace_name = marketplace
+
+        try:
+            await self.bot.send_message(
+                user_id,
+                "⚠️ Товар закончился и больше не отслеживается.\n\n"
+                f"📦 {_format_product_title(product)}\n"
+                f"🛒 Маркетплейс: {marketplace_name}\n\n"
+                "Последняя цена и история сохранены в списке позиций."
+            )
+        except Exception as e:
+            logger.error(
+                f"Не удалось отправить уведомление о закончившемся товаре "
+                f"пользователю {user_id}: {e}"
+            )
+
+    async def _notify_product_available(
+        self,
+        user_id: int,
+        product: dict,
+        marketplace: str,
+        price: int
+    ):
+        """Уведомляет пользователя, что товар снова доступен и отслеживается."""
+        match marketplace:
+            case Marketplace.OZON.value:
+                marketplace_name = "Ozon"
+            case Marketplace.WILDBERRIES.value:
+                marketplace_name = "Wildberries"
+            case _:
+                marketplace_name = marketplace
+
+        try:
+            await self.bot.send_message(
+                user_id,
+                "✅ Товар снова в наличии и отслеживается.\n\n"
+                f"📦 {_format_product_title(product)}\n"
+                f"🛒 Маркетплейс: {marketplace_name}\n"
+                f"💰 Текущая цена: {price} ₽\n\n"
+                "История цен сохранена, обновления и уведомления снова включены."
+            )
+        except Exception as e:
+            logger.error(
+                f"Не удалось отправить уведомление о восстановлении товара "
+                f"пользователю {user_id}: {e}"
+            )
+
     async def _handle_add_cart(self, task: dict):
         """Обрабатывает задачу добавления корзины"""
         user_id = task["user_id"]
@@ -715,6 +775,11 @@ class TaskQueue:
                         await mark_product_not_in_cart(product_id)
                         removed_count += 1
                         removed_product_ids.add(product_id)
+                        await self._notify_product_unavailable(
+                            user_id,
+                            cart_product,
+                            marketplace
+                        )
                         logger.info(f"Товар закончился и отключен: {product_name}")
                     await update_product_cart_identity(product_id, variant_text, cart_item_key)
                     continue
@@ -724,6 +789,12 @@ class TaskQueue:
                     await mark_product_in_cart(product_id)
                     restored_count += 1
                     restored_product_ids.add(product_id)
+                    await self._notify_product_available(
+                        user_id,
+                        cart_product,
+                        marketplace,
+                        new_price
+                    )
                     logger.info(f"Восстановлен товар в корзине: {product_name}")
 
                 # Обновляем цену
@@ -1003,6 +1074,11 @@ class TaskQueue:
                         await mark_product_not_in_cart(product_id)
                         removed_count += 1
                         removed_product_ids.add(product_id)
+                        await self._notify_product_unavailable(
+                            user_id,
+                            cart_product,
+                            marketplace
+                        )
                         logger.info(f"Товар закончился и отключен: {product_name}")
                     await update_product_cart_identity(product_id, variant_text, cart_item_key)
                     continue
@@ -1012,6 +1088,12 @@ class TaskQueue:
                     await mark_product_in_cart(product_id)
                     restored_count += 1
                     restored_product_ids.add(product_id)
+                    await self._notify_product_available(
+                        user_id,
+                        cart_product,
+                        marketplace,
+                        new_price
+                    )
                     logger.info(f"Восстановлен товар в корзине: {product_name}")
 
                 price_snapshot = await get_price_snapshot(product_id)
