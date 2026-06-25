@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     PROXY_URL: str | None = None
     ADMIN_USER_ID: int = 1189033386
     QUEUE_FILE: str = "queue_state.json"
-    MAINTENANCE_FLAG_FILE: str = "maintenance.flag"
+    SUBSCRIPTIONS_ENFORCED: bool = False
 
     class Config:
         env_file = ".env"

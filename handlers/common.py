@@ -1,14 +1,37 @@
 from aiogram import types, Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from datetime import datetime
 
 from config import config
 from keyboards.reply import main_kb, admin_kb
-from core.database import register_user
+from core.database import get_user_subscription_details, register_user
 from loggers import logger
 
 
 common_router = Router()
+
+
+def _format_subscription_date(date_value: str | None) -> str:
+    """Форматирует дату подписки для пользователя."""
+    if not date_value:
+        return "отсутствует"
+
+    try:
+        return datetime.fromisoformat(date_value).strftime("%d.%m.%Y")
+    except ValueError:
+        return date_value
+
+
+def _format_subscription_status(subscription: dict) -> str:
+    """Формирует пользовательский статус подписки."""
+    match subscription["status"]:
+        case "active":
+            return "активна"
+        case "expired":
+            return "истекла"
+        case _:
+            return "без подписки"
 
 
 # Обработчик команды /start
@@ -135,6 +158,37 @@ async def cmd_help(message: types.Message, state: FSMContext):
     )
 
     await message.answer(help_text, parse_mode="HTML")
+
+
+@common_router.message(Command("subscription"))
+async def cmd_subscription(message: types.Message, state: FSMContext):
+    """Показывает пользователю состояние подписки."""
+    user = message.from_user
+    logger.info(f"Команда /subscription от пользователя {user.id}")
+    await state.clear()
+
+    await register_user(user.id, user.username, user.first_name)
+    subscription = await get_user_subscription_details(user.id)
+
+    if not subscription:
+        await message.answer("Не удалось получить данные подписки. Попробуйте позже.")
+        return
+
+    status = _format_subscription_status(subscription)
+    paid_until = subscription.get("paid_until")
+    paid_until_text = (
+        _format_subscription_date(paid_until)
+        if paid_until else "подписка отсутствует"
+    )
+
+    text = (
+        "💳 Подписка\n\n"
+        f"Статус: {status}\n"
+        f"Дата окончания: {paid_until_text}\n\n"
+        "Пока бот работает бесплатно, существующие функции доступны без подписки."
+    )
+
+    await message.answer(text)
 
 
 # Эхо-обработчик (должен быть последним при регистрации)

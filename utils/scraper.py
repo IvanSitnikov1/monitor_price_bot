@@ -11,6 +11,9 @@ from playwright_stealth import Stealth
 from loggers import logger
 
 
+AVITO_CLOSED_MARKER = "avito_closed"
+
+
 def _get_system_profile() -> Path:
     """
     Определяет путь к системному профилю Chrome/Chromium.
@@ -702,14 +705,18 @@ async def scrape_avito_product(
         data = await page.evaluate("""
             () => {
                 const bodyText = document.body?.innerText || '';
+                const closedWarning = document.querySelector(
+                    '[data-marker="item-view/closed-warning"]'
+                );
+                const closedWarningText = closedWarning?.textContent || '';
                 const blockedTexts = [
                     'Доступ ограничен',
                     'Подтвердите, что вы не робот',
                     'Проверяем, что вы не робот'
                 ];
                 const blocked = blockedTexts.some((text) => bodyText.includes(text));
-                const unavailable = bodyText.includes('Объявление снято с публикации') ||
-                    bodyText.includes('Такой страницы не существует');
+                const closed = closedWarningText.includes('Объявление снято с публикации');
+                const unavailable = bodyText.includes('Такой страницы не существует');
                 const title = document.querySelector(
                     '[data-marker="item-view/title-info"]'
                 )?.textContent?.trim();
@@ -726,7 +733,7 @@ async def scrape_avito_product(
                         '[data-marker="image-frame/image-wrapper"]'
                     )?.getAttribute('data-url');
 
-                return {blocked, unavailable, title, price, imageUrl};
+                return {blocked, closed, unavailable, title, price, imageUrl};
             }
         """)
 
@@ -735,6 +742,10 @@ async def scrape_avito_product(
             if maintenance_callback:
                 await maintenance_callback()
             return "maintenance_required"
+
+        if data.get("closed"):
+            logger.warning(f"Объявление Avito снято с публикации: {url}")
+            return AVITO_CLOSED_MARKER
 
         if data.get("unavailable"):
             logger.warning(f"Объявление Avito недоступно: {url}")

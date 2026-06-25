@@ -1,5 +1,5 @@
 import aiosqlite
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from core.models import Marketplace
@@ -101,6 +101,26 @@ async def setup_database():
                 agreement_date TEXT
             )
         """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                user_id INTEGER PRIMARY KEY,
+                status TEXT NOT NULL DEFAULT 'free',
+                paid_until TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+            )
+        """)
+
+        date_now = datetime.now().isoformat()
+        await db.execute("""
+            INSERT OR IGNORE INTO subscriptions (
+                user_id, status, created_at, updated_at
+            )
+            SELECT user_id, 'free', ?, ?
+            FROM users
+        """, (date_now, date_now))
 
         await db.commit()
 
@@ -752,6 +772,7 @@ async def register_user(user_id: int, username: str | None, first_name: str | No
         first_name: Имя пользователя (опционально)
     """
     async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
         date_now = datetime.now().isoformat()
 
         # Используем INSERT OR IGNORE чтобы не перезаписывать существующих пользователей
@@ -760,7 +781,187 @@ async def register_user(user_id: int, username: str | None, first_name: str | No
             VALUES (?, ?, ?, ?)
         """, (user_id, username, first_name, date_now))
 
+        await db.execute("""
+            INSERT OR IGNORE INTO subscriptions (
+                user_id, status, created_at, updated_at
+            )
+            VALUES (?, 'free', ?, ?)
+        """, (user_id, date_now, date_now))
+
         await db.commit()
+
+
+async def get_users_with_subscriptions() -> list[dict]:
+    """
+    Получает список пользователей с краткой информацией о подписке.
+
+    Returns:
+        Список словарей с данными пользователя и подписки
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute("""
+            SELECT
+                u.user_id,
+                u.username,
+                u.first_name,
+                u.date_registered,
+                s.status,
+                s.paid_until
+            FROM users u
+            LEFT JOIN subscriptions s ON s.user_id = u.user_id
+            ORDER BY u.date_registered DESC
+        """)
+
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def get_user_subscription_details(user_id: int) -> dict | None:
+    """
+    Получает карточку пользователя с состоянием подписки.
+
+    Args:
+        user_id: ID пользователя Telegram
+
+    Returns:
+        Словарь с данными пользователя и подписки или None
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA foreign_keys = ON")
+
+        cursor = await db.execute(
+            "SELECT user_id FROM users WHERE user_id = ?",
+            (user_id,)
+        )
+        if not await cursor.fetchone():
+            return None
+
+        date_now = datetime.now().isoformat()
+        await db.execute("""
+            INSERT OR IGNORE INTO subscriptions (
+                user_id, status, created_at, updated_at
+            )
+            VALUES (?, 'free', ?, ?)
+        """, (user_id, date_now, date_now))
+        await db.commit()
+
+        cursor = await db.execute("""
+            SELECT
+                u.user_id,
+                u.username,
+                u.first_name,
+                u.date_registered,
+                s.status,
+                s.paid_until,
+                s.created_at,
+                s.updated_at
+            FROM users u
+            JOIN subscriptions s ON s.user_id = u.user_id
+            WHERE u.user_id = ?
+        """, (user_id,))
+
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def extend_user_subscription(
+    user_id: int,
+    period_days: int
+) -> dict | None:
+    """
+    Продлевает подписку пользователя.
+
+    Args:
+        user_id: ID пользователя Telegram
+        period_days: Срок продления в днях
+
+    Returns:
+        Обновленная карточка подписки или None если пользователь не найден
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA foreign_keys = ON")
+
+        cursor = await db.execute(
+            "SELECT user_id FROM users WHERE user_id = ?",
+            (user_id,)
+        )
+        if not await cursor.fetchone():
+            return None
+
+        date_now = datetime.now()
+        date_now_text = date_now.isoformat()
+
+        await db.execute("""
+            INSERT OR IGNORE INTO subscriptions (
+                user_id, status, created_at, updated_at
+            )
+            VALUES (?, 'free', ?, ?)
+        """, (user_id, date_now_text, date_now_text))
+
+        cursor = await db.execute(
+            "SELECT paid_until FROM subscriptions WHERE user_id = ?",
+            (user_id,)
+        )
+        row = await cursor.fetchone()
+        paid_until = row["paid_until"] if row else None
+
+        start_date = date_now
+        if paid_until:
+            try:
+                paid_until_date = datetime.fromisoformat(paid_until)
+                if paid_until_date > date_now:
+                    start_date = paid_until_date
+            except ValueError:
+                pass
+
+        paid_until_after = start_date + timedelta(days=period_days)
+        paid_until_after_text = paid_until_after.isoformat()
+
+        await db.execute("""
+            UPDATE subscriptions
+            SET status = 'active',
+                paid_until = ?,
+                updated_at = ?
+            WHERE user_id = ?
+        """, (paid_until_after_text, date_now_text, user_id))
+
+        await db.commit()
+
+    return await get_user_subscription_details(user_id)
+
+
+async def has_active_access(user_id: int) -> bool:
+    """
+    Проверяет доступ пользователя к функциям бота.
+
+    Args:
+        user_id: ID пользователя Telegram
+
+    Returns:
+        True если доступ разрешен
+    """
+    from config import config
+
+    subscription = await get_user_subscription_details(user_id)
+    if not subscription:
+        return True
+
+    if not config.SUBSCRIPTIONS_ENFORCED:
+        return True
+
+    date_now = datetime.now()
+    paid_until = subscription.get("paid_until")
+    if not paid_until:
+        return False
+
+    try:
+        return datetime.fromisoformat(paid_until) > date_now
+    except ValueError:
+        return False
 
 
 def _get_cart_column(marketplace: Marketplace | str) -> str:

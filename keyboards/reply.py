@@ -27,6 +27,9 @@ admin_kb = ReplyKeyboardMarkup(
             KeyboardButton(text="🔄 Обновить цены"),
         ],
         [
+            KeyboardButton(text="💳 Подписки"),
+        ],
+        [
             KeyboardButton(text="❓ Помощь"),
             KeyboardButton(text="🔐 Авторизация"),
         ]

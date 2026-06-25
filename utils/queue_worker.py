@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Literal
 
 from utils.scraper import (
+    AVITO_CLOSED_MARKER,
     scrape_avito_product,
     scrape_ozon_cart,
     scrape_ozon_cart_with_urls,
@@ -245,7 +246,7 @@ class TaskQueue:
                     reason="обнаружена блокировка при парсинге объявления"
                 )
             )
-            if result == "maintenance_required" or result:
+            if result in ("maintenance_required", AVITO_CLOSED_MARKER) or result:
                 return result
             logger.warning(f"Avito: попытка парсинга {attempt}/3 не удалась")
             if attempt < 3:
@@ -271,6 +272,13 @@ class TaskQueue:
             return
 
         product = await self._scrape_avito_with_retries(task)
+        if product == AVITO_CLOSED_MARKER:
+            await self.bot.send_message(
+                user_id,
+                "❌ Объявление Avito снято с публикации и не может быть добавлено."
+            )
+            return
+
         if not product or product == "maintenance_required":
             if product != "maintenance_required":
                 await self.bot.send_message(
@@ -313,6 +321,28 @@ class TaskQueue:
             return
 
         product = await self._scrape_avito_with_retries(task)
+        if product == AVITO_CLOSED_MARKER:
+            product_id = stored_product["id"]
+
+            if stored_product["in_cart"] == 1:
+                await mark_product_not_in_cart(product_id)
+                await self.bot.send_message(
+                    task["user_id"],
+                    "❌ Объявление Avito снято с публикации.\n\n"
+                    f"📦 {stored_product['name']}\n\n"
+                    "Мониторинг этого объявления остановлен. Последняя цена и история "
+                    "сохранены в списке позиций."
+                )
+                logger.info(
+                    f"Мониторинг объявления Avito остановлен: product_id={product_id}"
+                )
+            else:
+                logger.info(
+                    f"Объявление Avito уже неактивно: product_id={product_id}"
+                )
+
+            return
+
         if not product or product == "maintenance_required":
             return
 

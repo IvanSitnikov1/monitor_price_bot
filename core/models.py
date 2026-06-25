@@ -57,3 +57,22 @@ class AuthRequest(BaseModel):
     username: str | None = Field(None, description="Username пользователя")
     request_date: datetime = Field(default_factory=datetime.now, description="Дата запроса")
     status: str = Field("pending", description="Статус: pending | approved | rejected")
+
+
+class Subscription(BaseModel):
+    """Текущее состояние подписки пользователя"""
+    user_id: int = Field(description="ID пользователя Telegram", examples=[1189033386])
+    status: str = Field(description="Статус подписки", examples=["active"])
+    paid_until: str | None = Field(
+        None,
+        description="Дата окончания оплаченного доступа",
+        examples=["2026-07-25T12:00:00"]
+    )
+    created_at: str = Field(
+        description="Дата создания записи",
+        examples=["2026-06-25T12:00:00"]
+    )
+    updated_at: str = Field(
+        description="Дата обновления записи",
+        examples=["2026-06-25T12:00:00"]
+    )

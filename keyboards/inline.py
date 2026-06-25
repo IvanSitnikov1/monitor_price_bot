@@ -75,3 +75,65 @@ def get_auth_menu_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="🗑 Удалить мои данные", callback_data="auth_delete_data")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def get_subscription_users_keyboard(users: list[dict]) -> InlineKeyboardMarkup:
+    """Создает клавиатуру со списком пользователей для управления подписками."""
+    builder = InlineKeyboardBuilder()
+
+    for user in users:
+        username = user.get("username")
+        first_name = user.get("first_name")
+        display_name = f"@{username}" if username else first_name or "без имени"
+        paid_until = user.get("paid_until")
+        status = "без подписки"
+
+        if paid_until:
+            status = f"до {paid_until[:10]}"
+
+        builder.button(
+            text=f"{user['user_id']} | {display_name} | {status}",
+            callback_data=f"admin_sub_user:{user['user_id']}"
+        )
+
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def get_subscription_user_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Создает клавиатуру карточки подписки пользователя."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="Продлить подписку",
+        callback_data=f"admin_sub_extend:{user_id}"
+    )
+    builder.button(
+        text="К списку пользователей",
+        callback_data="admin_sub_list"
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def get_subscription_period_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Создает клавиатуру выбора срока продления подписки."""
+    builder = InlineKeyboardBuilder()
+    periods = [
+        ("1 месяц", 30),
+        ("3 месяца", 90),
+        ("6 месяцев", 180),
+        ("12 месяцев", 365),
+    ]
+
+    for label, days in periods:
+        builder.button(
+            text=label,
+            callback_data=f"admin_sub_period:{user_id}:{days}"
+        )
+
+    builder.button(
+        text="Назад к карточке",
+        callback_data=f"admin_sub_user:{user_id}"
+    )
+    builder.adjust(2, 2, 1)
+    return builder.as_markup()
