@@ -582,6 +582,42 @@ async def get_min_price(product_id: int) -> int | None:
         return result[0] if result else None
 
 
+async def get_price_snapshot(product_id: int) -> dict[str, int | None]:
+    """
+    Получает последнюю, минимальную и максимальную цену товара.
+
+    Args:
+        product_id: ID товара
+
+    Returns:
+        Словарь с полями previous_price, min_price, max_price
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute(
+            """
+            SELECT
+                (SELECT price FROM price_history
+                 WHERE product_id = ?
+                 ORDER BY date_checked DESC, id DESC
+                 LIMIT 1) as previous_price,
+                MIN(price) as min_price,
+                MAX(price) as max_price
+            FROM price_history
+            WHERE product_id = ?
+            """,
+            (product_id, product_id)
+        )
+
+        row = await cursor.fetchone()
+        return dict(row) if row else {
+            "previous_price": None,
+            "min_price": None,
+            "max_price": None,
+        }
+
+
 async def get_all_user_ids() -> list[int]:
     """
     Получает список всех уникальных ID пользователей бота.

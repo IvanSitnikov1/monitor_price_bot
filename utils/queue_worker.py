@@ -23,7 +23,7 @@ from core.database import (
     update_product_url,
     update_product_image_url,
     update_product_image_path,
-    get_min_price,
+    get_price_snapshot,
     get_all_products,
     get_product_by_url,
     save_user_cart,
@@ -318,17 +318,27 @@ class TaskQueue:
 
         product_id = stored_product["id"]
 
-        min_price_before = await get_min_price(product_id)
+        price_snapshot = await get_price_snapshot(product_id)
+        previous_price = price_snapshot["previous_price"]
         await update_product_price(product_id, product["price"])
 
-        if min_price_before is not None and product["price"] < min_price_before:
+        if previous_price is not None and product["price"] < previous_price:
+            min_price = min(
+                price_snapshot["min_price"] or product["price"],
+                product["price"]
+            )
+            max_price = max(
+                price_snapshot["max_price"] or product["price"],
+                product["price"]
+            )
             await self.bot.send_message(
                 task["user_id"],
                 "🔔 Цена снизилась!\n\n"
                 f"📦 {product['name']}\n\n"
                 f"💰 Новая цена: {product['price']} ₽\n"
-                f"📉 Было минимум: {min_price_before} ₽\n"
-                f"💵 Экономия: {min_price_before - product['price']} ₽"
+                f"📉 Минимальная цена: {min_price} ₽\n"
+                f"📈 Максимальная цена: {max_price} ₽\n"
+                f"💵 Экономия: {max_price - product['price']} ₽"
             )
 
     async def _handle_add_cart(self, task: dict):
@@ -676,25 +686,35 @@ class TaskQueue:
 
                 new_price = int(re.sub(r'[\s\xa0]', '', price_match.group(1)))
 
-                # Получаем минимальную цену до обновления
-                min_price_before = await get_min_price(product_id)
+                price_snapshot = await get_price_snapshot(product_id)
+                previous_price = price_snapshot["previous_price"]
 
                 # Обновляем цену в БД
                 await update_product_price(product_id, new_price)
                 updated_count += 1
                 logger.info(f"✅ Цена обновлена для {product_name}: {new_price} ₽")
 
-                # Проверяем, упала ли цена ниже минимальной
-                if min_price_before and new_price < min_price_before:
+                # Проверяем, упала ли цена ниже предыдущего замера
+                if previous_price is not None and new_price < previous_price:
+                    min_price = min(
+                        price_snapshot["min_price"] or new_price,
+                        new_price
+                    )
+                    max_price = max(
+                        price_snapshot["max_price"] or new_price,
+                        new_price
+                    )
                     price_drops.append({
                         "name": product_name,
                         "new_price": new_price,
-                        "old_min": min_price_before,
-                        "savings": min_price_before - new_price
+                        "previous_price": previous_price,
+                        "min_price": min_price,
+                        "max_price": max_price,
+                        "savings": max_price - new_price
                     })
                     logger.info(
-                        f"🔔 Цена упала ниже минимальной! "
-                        f"Было: {min_price_before} ₽, стало: {new_price} ₽"
+                        f"🔔 Цена снизилась относительно предыдущего замера! "
+                        f"Было: {previous_price} ₽, стало: {new_price} ₽"
                     )
 
         # Помечаем товары, которых нет в новой корзине, как удалённые (но не удаляем из БД)
@@ -716,7 +736,8 @@ class TaskQueue:
                     f"🔔 Цена снизилась!\n\n"
                     f"📦 {drop['name']}\n\n"
                     f"💰 Новая цена: {drop['new_price']} ₽\n"
-                    f"📉 Было минимум: {drop['old_min']} ₽\n"
+                    f"📉 Минимальная цена: {drop['min_price']} ₽\n"
+                    f"📈 Максимальная цена: {drop['max_price']} ₽\n"
                     f"💵 Экономия: {drop['savings']} ₽"
                 )
 
