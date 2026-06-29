@@ -211,8 +211,7 @@ async def start_wildberries_phone_request(callback: types.CallbackQuery, state: 
 
     await callback.message.edit_text(
         "🔐 <b>Авторизация в Wildberries</b>\n\n"
-        "📱 Отправьте ваш номер телефона в формате +79991234567.\n\n"
-        "После этого администратор вручную выполнит вход в Wildberries.",
+        "📱 Отправьте ваш номер телефона в формате +79991234567.",
         parse_mode="HTML"
     )
     await callback.answer()
