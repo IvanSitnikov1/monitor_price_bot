@@ -101,7 +101,10 @@ class BrowserInstance:
         """Завершает только найденный основной процесс Chromium и его дерево."""
         try:
             process_group = os.getpgid(pid)
-            os.killpg(process_group, signal.SIGTERM)
+            if process_group == pid:
+                os.killpg(process_group, signal.SIGTERM)
+            else:
+                os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             return
 
@@ -113,7 +116,10 @@ class BrowserInstance:
 
         try:
             process_group = os.getpgid(pid)
-            os.killpg(process_group, signal.SIGKILL)
+            if process_group == pid:
+                os.killpg(process_group, signal.SIGKILL)
+            else:
+                os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
 
