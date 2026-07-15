@@ -1,6 +1,7 @@
 import asyncio
 import os
-import shutil
+import signal
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -8,7 +9,6 @@ from pathlib import Path
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from playwright_stealth import Stealth
 
-from utils.scraper import _get_system_profile
 from loggers import logger
 
 
@@ -27,7 +27,11 @@ class BrowserInstance:
         self._chrome_process = None
         self._current_cart_urls: dict[str, str] = {}
 
-    def _start_chrome_manually(self, user_data_dir: Path, port: int = 9222) -> subprocess.Popen | None:
+    def _start_chrome_manually(
+        self,
+        user_data_dir: Path,
+        port: int = 9222
+    ) -> subprocess.Popen | None:
         """
         Запускает Chrome вручную через subprocess (без Playwright).
         Это обходит детект автоматизации, т.к. Chrome запускается как обычный процесс.
@@ -49,8 +53,6 @@ class BrowserInstance:
             f"--user-data-dir={user_data_dir}",
             # "--disable-blink-features=AutomationControlled",
             "--disable-dev-shm-usage",
-            # "--no-sandbox",
-            "--disable-gpu",
             "--window-size=1920,1080",
             "--start-maximized",
         ]
@@ -71,6 +73,50 @@ class BrowserInstance:
             logger.error(f"Не удалось запустить Chrome вручную: {e}")
             return None
 
+    @staticmethod
+    def _find_process_for_profile(user_data_dir: Path) -> int | None:
+        """Находит основной Chromium-процесс, использующий профиль бота."""
+        expected_profile = str(user_data_dir.resolve())
+
+        for process_dir in Path("/proc").glob("[0-9]*"):
+            try:
+                pid = int(process_dir.name)
+                command_line = (
+                    (process_dir / "cmdline").read_bytes().replace(b"\x00", b" ").decode()
+                )
+            except (OSError, UnicodeDecodeError, ValueError):
+                continue
+
+            if (
+                expected_profile in command_line
+                and "--remote-debugging-port=" in command_line
+                and "--type=" not in command_line
+            ):
+                return pid
+
+        return None
+
+    @staticmethod
+    def _terminate_process(pid: int) -> None:
+        """Завершает только найденный основной процесс Chromium и его дерево."""
+        try:
+            process_group = os.getpgid(pid)
+            os.killpg(process_group, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if not Path(f"/proc/{pid}").exists():
+                return
+            time.sleep(0.1)
+
+        try:
+            process_group = os.getpgid(pid)
+            os.killpg(process_group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
     async def ensure_browser(self) -> tuple[Browser, BrowserContext]:
         """
         Гарантирует, что браузер запущен и подключен.
@@ -79,86 +125,58 @@ class BrowserInstance:
             Кортеж (browser, context)
         """
         if self._browser and self._context:
-            logger.info(f"[User {self.user_id}] Используем существующий браузер на порту {self.port}")
+            logger.info(
+                f"[User {self.user_id}] Используем существующий браузер "
+                f"на порту {self.port}"
+            )
             return self._browser, self._context
 
         # Определяем профиль
         user_profile = Path(f"user_data/{self.user_id}").absolute()
 
-        # Если профиля пользователя нет — копируем системный профиль как шаблон
+        # Новые профили создаются пустыми и не наследуют системное состояние браузера.
         if not user_profile.exists() or not (user_profile / "Default").exists():
-            logger.info(f"[User {self.user_id}] Профиль не найден, создаём на основе системного")
-
-            # Получаем системный профиль
-            system_profile = _get_system_profile()
-
-            if system_profile.exists():
-                try:
-                    # Копируем системный профиль как шаблон
-                    logger.info(f"[User {self.user_id}] Копирование системного профиля: {system_profile} -> {user_profile}")
-                    shutil.copytree(system_profile, user_profile, dirs_exist_ok=True, ignore_dangling_symlinks=True)
-                    logger.info(f"[User {self.user_id}] Системный профиль успешно скопирован")
-                except Exception as e:
-                    logger.warning(f"[User {self.user_id}] Не удалось скопировать системный профиль: {e}")
-                    logger.info(f"[User {self.user_id}] Создаём пустой профиль")
-                    user_profile.mkdir(parents=True, exist_ok=True)
-            else:
-                logger.warning(f"[User {self.user_id}] Системный профиль не найден, создаём пустой")
-                user_profile.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[User {self.user_id}] Создаём пустой профиль Chromium")
+            (user_profile / "Default").mkdir(parents=True, exist_ok=True)
 
         user_data_dir = user_profile
         logger.info(f"[User {self.user_id}] Используется профиль: {user_data_dir}")
 
-        cdp_url = f"http://localhost:{self.port}"
-
         self._playwright = await async_playwright().start()
-        logger.info(f"[User {self.user_id}] Попытка подключения к Chrome через CDP: {cdp_url}")
+        stale_pid = self._find_process_for_profile(user_data_dir)
+        if stale_pid:
+            logger.warning(
+                f"[User {self.user_id}] Завершаем старый Chromium-процесс "
+                f"{stale_pid} для профиля {user_data_dir}"
+            )
+            self._terminate_process(stale_pid)
+
+        cdp_url = f"http://127.0.0.1:{self.port}"
+        logger.info(f"[User {self.user_id}] Запускаем собственный Chrome на {cdp_url}")
+        self._chrome_process = self._start_chrome_manually(user_data_dir, port=self.port)
+        if not self._chrome_process:
+            raise RuntimeError("Не удалось запустить Chrome")
+
+        logger.info(f"[User {self.user_id}] Ожидание запуска Chrome")
+        await asyncio.sleep(5)
 
         try:
-            # Пытаемся подключиться к уже запущенному Chrome
             self._browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
-            logger.info(f"[User {self.user_id}] Успешно подключились к существующему Chrome")
-
             contexts = self._browser.contexts
-            if contexts:
-                self._context = contexts[0]
-                logger.info(f"[User {self.user_id}] Используем существующий контекст, всего контекстов: {len(contexts)}")
-            else:
-                logger.error(f"[User {self.user_id}] Нет доступных контекстов в браузере")
-                await self._browser.close()
-                raise RuntimeError("Нет доступных контекстов")
+            if not contexts:
+                raise RuntimeError("У запущенного Chrome нет доступных контекстов")
 
-        except Exception as e:
-            logger.warning(f"[User {self.user_id}] Не удалось подключиться к Chrome через CDP: {e}")
-            logger.info(f"[User {self.user_id}] Запускаем Chrome вручную через subprocess на порту {self.port}...")
-
-            self._chrome_process = self._start_chrome_manually(user_data_dir, port=self.port)
-            if not self._chrome_process:
-                raise RuntimeError("Не удалось запустить Chrome")
-
-            logger.info(f"[User {self.user_id}] Ожидание запуска Chrome...")
-            await asyncio.sleep(5)
-
-            try:
-                self._browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
-                logger.info(f"[User {self.user_id}] Успешно подключились к Chrome, запущенному через subprocess")
-
-                contexts = self._browser.contexts
-                if contexts:
-                    self._context = contexts[0]
-                    logger.info(f"[User {self.user_id}] Используем контекст, всего контекстов: {len(contexts)}")
-                else:
-                    logger.error(f"[User {self.user_id}] Нет доступных контекстов")
-                    await self._browser.close()
-                    if self._chrome_process:
-                        self._chrome_process.terminate()
-                    raise RuntimeError("Нет доступных контекстов")
-
-            except Exception as e2:
-                logger.error(f"[User {self.user_id}] Не удалось подключиться к Chrome после запуска: {e2}")
-                if self._chrome_process:
-                    self._chrome_process.terminate()
-                raise
+            self._context = contexts[0]
+            logger.info(
+                f"[User {self.user_id}] Подключились к собственному Chrome, "
+                f"контекстов: {len(contexts)}"
+            )
+        except Exception as error:
+            logger.error(f"[User {self.user_id}] Не удалось подключиться к Chrome: {error}")
+            if self._chrome_process:
+                self._terminate_process(self._chrome_process.pid)
+                self._chrome_process = None
+            raise
 
         return self._browser, self._context
 
@@ -200,14 +218,15 @@ class BrowserInstance:
             marketplace: Маркетплейс корзины
         """
         stealth = Stealth(
-            navigator_languages_override=('ru-RU', 'ru'),
-            navigator_platform_override='Linux x86_64',
-            navigator_user_agent_override='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+            navigator_languages=False,
+            navigator_platform=False,
+            navigator_user_agent=False,
+            navigator_user_agent_data=False,
+            navigator_vendor=False,
+            webgl_vendor=False,
         )
         await stealth.apply_stealth_async(page)
         logger.info(f"[User {self.user_id}] Stealth-патчи применены для {marketplace}")
-
-        await page.set_viewport_size({"width": 1920, "height": 1080})
 
     async def get_cart_page(self, cart_url: str, marketplace: str = "ozon") -> Page:
         """
@@ -376,7 +395,7 @@ class BrowserInstance:
 
         if self._chrome_process:
             try:
-                self._chrome_process.terminate()
+                self._terminate_process(self._chrome_process.pid)
                 logger.info(f"[User {self.user_id}] Процесс Chrome остановлен")
             except Exception as e:
                 logger.warning(f"[User {self.user_id}] Не удалось остановить Chrome: {e}")
@@ -396,10 +415,24 @@ class BrowserManager:
         self._port_counter = 0
 
     def _get_next_port(self) -> int:
-        """Возвращает следующий свободный порт"""
-        port = self.base_port + self._port_counter
-        self._port_counter += 1
-        return port
+        """Возвращает свободный localhost-порт для CDP."""
+        while True:
+            port = self.base_port + self._port_counter
+            self._port_counter += 1
+
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            except OSError as error:
+                logger.warning(f"Не удалось проверить CDP-порт {port}: {error}")
+                return port
+            try:
+                sock.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            finally:
+                sock.close()
+
+            return port
 
     def _get_instance(self, user_id: int) -> BrowserInstance:
         """
@@ -414,7 +447,10 @@ class BrowserManager:
         """
         if user_id not in self._instances:
             port = self._get_next_port()
-            logger.info(f"Создание нового экземпляра браузера для user_id={user_id} на порту {port}")
+            logger.info(
+                f"Создание нового экземпляра браузера для user_id={user_id} "
+                f"на порту {port}"
+            )
             self._instances[user_id] = BrowserInstance(user_id, port)
 
         return self._instances[user_id]
@@ -463,6 +499,12 @@ class BrowserManager:
 
         await instance.close()
         logger.info(f"Активный браузер для user_id={user_id} закрыт")
+
+    async def close_all(self):
+        """Закрывает все браузеры, запущенные текущим менеджером."""
+        user_ids = list(self._instances)
+        for user_id in user_ids:
+            await self.close_user_browser(user_id)
 
     async def get_cart_page(
         self,

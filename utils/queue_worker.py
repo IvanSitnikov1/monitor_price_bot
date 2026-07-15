@@ -279,6 +279,7 @@ class TaskQueue:
             except asyncio.CancelledError:
                 pass
 
+        await self.browser_manager.close_all()
         await self._save_queue()
         logger.info("Воркер очереди остановлен")
 
@@ -1192,6 +1193,8 @@ class TaskQueue:
 
         # Включаем режим техработ для пользователя
         maintenance_mode.enable(user_id, marketplace)
+        if marketplace:
+            maintenance_mode.enable_host(marketplace)
 
         # Отправляем уведомление администратору
         try:
@@ -1202,7 +1205,13 @@ class TaskQueue:
                 f"Маркетплейс: {marketplace or 'не определён'}\n"
                 f"Причина: {reason}\n\n"
                 f"Для разблокировки удалите файл: "
-                f"maintenance_flags/maintenance_{user_id}{marketplace_suffix}.flag"
+                f"maintenance_flags/maintenance_{user_id}{marketplace_suffix}.flag\n"
+                + (
+                    f"Общий флаг хоста: "
+                    f"maintenance_flags/maintenance_host_{marketplace}.flag"
+                    if marketplace
+                    else ""
+                )
             )
         except Exception as e:
             logger.error(f"Не удалось отправить уведомление администратору: {e}")
