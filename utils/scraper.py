@@ -154,6 +154,76 @@ async def _check_ozon_block(page) -> bool:
     )
 
 
+def _normalize_authorization_control_text(text: str | None) -> str:
+    """Нормализует текст элемента управления авторизацией."""
+    normalized = (text or "").replace("\xa0", " ")
+    return re.sub(r"\s+", " ", normalized).strip().casefold()
+
+
+async def _has_visible_login_control(page, selector: str, marketplace: str) -> bool:
+    """Ищет видимую кнопку входа с точным текстом «Войти»."""
+    try:
+        controls = page.locator(selector)
+        controls_count = await controls.count()
+    except Exception as e:
+        logger.debug(f"{marketplace}: не удалось найти элементы входа: {e}")
+        return False
+
+    for index in range(controls_count):
+        control = controls.nth(index)
+        try:
+            if not await control.is_visible(timeout=500):
+                continue
+
+            control_text = await control.inner_text(timeout=1000)
+            if _normalize_authorization_control_text(control_text) == "войти":
+                logger.warning(
+                    f"{marketplace}: обнаружена видимая кнопка входа, сессия неактивна"
+                )
+                return True
+        except Exception as e:
+            logger.debug(
+                f"{marketplace}: не удалось проверить элемент входа {index + 1}: {e}"
+            )
+
+    return False
+
+
+async def _check_ozon_logged_out(page) -> bool:
+    """Проверяет видимый анонимный блок профиля Ozon."""
+    return await _has_visible_login_control(
+        page,
+        '[data-widget="profileMenuAnonymous"]',
+        "Ozon",
+    )
+
+
+async def _check_wildberries_logged_out(page) -> bool:
+    """Проверяет видимую семантическую ссылку входа Wildberries."""
+    return await _has_visible_login_control(
+        page,
+        (
+            'a[data-wba-header-name="Login"][data-testid="login"]'
+            '[href*="/security/login"]'
+        ),
+        "Wildberries",
+    )
+
+
+async def _report_authorization_lost(callback, marketplace: str) -> None:
+    """Передает сигнал о завершении сессии, не прерывая парсинг при ошибке."""
+    if not callback:
+        return
+
+    try:
+        await callback()
+    except Exception as e:
+        logger.error(
+            f"{marketplace}: ошибка обработки завершившейся авторизации: {e}",
+            exc_info=True,
+        )
+
+
 async def _check_bot_detection(page):
     """
     Проверяет детект автоматизации через bot.sannysoft.com
@@ -508,7 +578,8 @@ async def _scrape_ozon_cart(
     browser_manager,
     product_details_extractor=None,
     is_refresh: bool = False,
-    maintenance_callback=None
+    maintenance_callback=None,
+    authorization_lost_callback=None,
 ) -> list[dict[str, str | None]] | dict[str, object] | str | None:
     """
     Парсит корзину Ozon и извлекает список товаров.
@@ -520,6 +591,7 @@ async def _scrape_ozon_cart(
         product_details_extractor: Функция для извлечения дополнительных данных товара
         is_refresh: Если True, обновляет существующую страницу вместо открытия новой
         maintenance_callback: Callback для активации maintenance mode при блокировке Ozon
+        authorization_lost_callback: Callback при обнаружении завершившейся сессии Ozon
 
     Returns:
         Список словарей с данными товаров,
@@ -560,6 +632,9 @@ async def _scrape_ozon_cart(
         if maintenance_callback:
             await maintenance_callback()
         return "maintenance_required"
+
+    if await _check_ozon_logged_out(page):
+        await _report_authorization_lost(authorization_lost_callback, "Ozon")
 
     # Парсинг товаров из корзины
     logger.info("Начинаем извлечение товаров из корзины")
@@ -736,7 +811,8 @@ async def scrape_wildberries_cart(
     user_id: int,
     browser_manager,
     is_refresh: bool = False,
-    maintenance_callback=None
+    maintenance_callback=None,
+    authorization_lost_callback=None,
 ) -> list[dict[str, str | None]] | str | None:
     """
     Парсит публичную корзину Wildberries без авторизации.
@@ -747,6 +823,7 @@ async def scrape_wildberries_cart(
         browser_manager: Экземпляр BrowserManager для переиспользования браузера
         is_refresh: Если True, повторно разбирает уже загруженную страницу
         maintenance_callback: Callback для активации maintenance mode при блокировке
+        authorization_lost_callback: Callback при завершившейся сессии Wildberries
 
     Returns:
         Список словарей с данными товаров,
@@ -807,6 +884,9 @@ async def scrape_wildberries_cart(
         if maintenance_callback:
             await maintenance_callback()
         return "maintenance_required"
+
+    if await _check_wildberries_logged_out(page):
+        await _report_authorization_lost(authorization_lost_callback, "Wildberries")
 
     try:
         raw_products = await page.evaluate("""
@@ -932,7 +1012,8 @@ async def scrape_ozon_cart_with_urls(
     user_id: int,
     browser_manager,
     is_refresh: bool = False,
-    maintenance_callback=None
+    maintenance_callback=None,
+    authorization_lost_callback=None,
 ) -> list[dict[str, str | None]] | str | None:
     """Парсит корзину при добавлении и извлекает URL карточек товаров."""
     return await _scrape_ozon_cart(
@@ -941,7 +1022,8 @@ async def scrape_ozon_cart_with_urls(
         browser_manager=browser_manager,
         product_details_extractor=_extract_product_details_from_block,
         is_refresh=is_refresh,
-        maintenance_callback=maintenance_callback
+        maintenance_callback=maintenance_callback,
+        authorization_lost_callback=authorization_lost_callback,
     )
 
 
@@ -950,7 +1032,8 @@ async def scrape_ozon_cart(
     user_id: int,
     browser_manager,
     is_refresh: bool = False,
-    maintenance_callback=None
+    maintenance_callback=None,
+    authorization_lost_callback=None,
 ) -> list[dict[str, str | None]] | str | None:
     """Парсит корзину при обновлении цен без открытия карточек товаров."""
     return await _scrape_ozon_cart(
@@ -958,7 +1041,8 @@ async def scrape_ozon_cart(
         user_id=user_id,
         browser_manager=browser_manager,
         is_refresh=is_refresh,
-        maintenance_callback=maintenance_callback
+        maintenance_callback=maintenance_callback,
+        authorization_lost_callback=authorization_lost_callback,
     )
 
 

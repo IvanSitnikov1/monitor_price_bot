@@ -5,7 +5,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import config
-from core.database import get_auth_request, update_auth_request_status
+from core.database import (
+    get_auth_request,
+    save_marketplace_authorization,
+    update_auth_request_status,
+)
+from core.models import Marketplace
 from loggers import logger
 from utils.states import AuthorizationInProgress
 
@@ -205,6 +210,7 @@ async def confirm_wildberries_authorization(callback: types.CallbackQuery, state
             await browser_manager.close_user_browser(user_id)
             logger.info(f"Браузер Wildberries для пользователя {user_id} закрыт")
 
+        await save_marketplace_authorization(user_id, Marketplace.WILDBERRIES)
         await update_auth_request_status(user_id, "approved")
 
         await callback.bot.send_message(

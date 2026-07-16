@@ -29,6 +29,7 @@ from core.database import (
     get_price_snapshot,
     get_all_products,
     get_product_by_url,
+    has_marketplace_authorization,
     save_user_cart,
 )
 from utils.maintenance import maintenance_mode
@@ -650,6 +651,74 @@ class TaskQueue:
                 f"пользователю {user_id}: {e}"
             )
 
+    async def _notify_authorization_lost(
+        self,
+        user_id: int,
+        marketplace: str,
+    ) -> None:
+        """Уведомляет ранее авторизованного пользователя о завершении сессии."""
+        try:
+            was_authorized = await has_marketplace_authorization(user_id, marketplace)
+        except Exception as e:
+            logger.error(
+                f"Не удалось проверить историю авторизации пользователя {user_id} "
+                f"в {marketplace}: {e}",
+                exc_info=True,
+            )
+            return
+
+        if not was_authorized:
+            logger.info(
+                f"Кнопка входа {marketplace} обнаружена у пользователя {user_id}, "
+                "но подтвержденной авторизации нет — уведомление не отправляется"
+            )
+            return
+
+        match marketplace:
+            case Marketplace.OZON.value:
+                marketplace_name = "Ozon"
+            case Marketplace.WILDBERRIES.value:
+                marketplace_name = "Wildberries"
+            case _:
+                logger.warning(
+                    f"Неизвестный маркетплейс для уведомления об авторизации: {marketplace}"
+                )
+                return
+
+        try:
+            await self.bot.send_message(
+                user_id,
+                f"⚠️ Авторизация в {marketplace_name} больше не активна.\n\n"
+                "Выполните повторную авторизацию через раздел «🔐 Авторизация», чтобы бот "
+                "снова использовал ваши персональные цены.\n\n"
+                "Если вы больше не хотите получать такие сообщения, откройте раздел "
+                "«🔐 Авторизация» и нажмите «🗑 Удалить мои данные»."
+            )
+            logger.info(
+                f"Пользователю {user_id} отправлено уведомление о завершении "
+                f"авторизации в {marketplace_name}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Не удалось уведомить пользователя {user_id} о завершении "
+                f"авторизации в {marketplace_name}: {e}"
+            )
+
+    def _create_authorization_lost_callback(self, user_id: int, marketplace: str):
+        """Создает callback с одним уведомлением на задачу очереди."""
+        notification_processed = False
+
+        async def authorization_lost_callback() -> None:
+            nonlocal notification_processed
+
+            if notification_processed:
+                return
+
+            notification_processed = True
+            await self._notify_authorization_lost(user_id, marketplace)
+
+        return authorization_lost_callback
+
     async def _handle_add_cart(self, task: dict):
         """Обрабатывает задачу добавления корзины"""
         user_id = task["user_id"]
@@ -662,6 +731,10 @@ class TaskQueue:
         cart_products = None
         cart_parse_partial = False
         skipped_products_count = 0
+        authorization_lost_callback = self._create_authorization_lost_callback(
+            user_id,
+            marketplace,
+        )
         for attempt in range(1, 4):
             logger.info(f"Попытка парсинга корзины {attempt}/3: {cart_url}")
 
@@ -700,7 +773,8 @@ class TaskQueue:
                             marketplace,
                             reason="обнаружена блокировка при парсинге корзины",
                             host_level=True,
-                        )
+                        ),
+                        authorization_lost_callback=authorization_lost_callback,
                     )
                 case Marketplace.WILDBERRIES.value:
                     cart_products = await scrape_wildberries_cart(
@@ -713,7 +787,8 @@ class TaskQueue:
                             marketplace,
                             reason="обнаружена блокировка при парсинге корзины",
                             host_level=True,
-                        )
+                        ),
+                        authorization_lost_callback=authorization_lost_callback,
                     )
                 case _:
                     logger.error(f"Неподдерживаемый маркетплейс корзины: {marketplace}")
@@ -978,6 +1053,10 @@ class TaskQueue:
         cart_products = None
         cart_parse_partial = False
         skipped_products_count = 0
+        authorization_lost_callback = self._create_authorization_lost_callback(
+            user_id,
+            marketplace,
+        )
         for attempt in range(1, 4):
             logger.info(f"Попытка парсинга корзины {attempt}/3: {cart_url}")
 
@@ -1016,7 +1095,8 @@ class TaskQueue:
                             marketplace,
                             reason="обнаружена блокировка при парсинге корзины",
                             host_level=True,
-                        )
+                        ),
+                        authorization_lost_callback=authorization_lost_callback,
                     )
                 case Marketplace.WILDBERRIES.value:
                     cart_products = await scrape_wildberries_cart(
@@ -1029,7 +1109,8 @@ class TaskQueue:
                             marketplace,
                             reason="обнаружена блокировка при парсинге корзины",
                             host_level=True,
-                        )
+                        ),
+                        authorization_lost_callback=authorization_lost_callback,
                     )
                 case _:
                     logger.error(f"Неподдерживаемый маркетплейс корзины: {marketplace}")

@@ -88,6 +88,40 @@ async def setup_database():
             )
         """)
 
+        cursor = await db.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'marketplace_authorizations'
+            """
+        )
+        marketplace_authorizations_exists = await cursor.fetchone() is not None
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS marketplace_authorizations (
+                user_id INTEGER NOT NULL,
+                marketplace TEXT NOT NULL,
+                authorized_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, marketplace),
+                FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+            )
+        """)
+
+        if not marketplace_authorizations_exists:
+            for marketplace in (Marketplace.OZON.value, Marketplace.WILDBERRIES.value):
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO marketplace_authorizations (
+                        user_id, marketplace, authorized_at
+                    )
+                    SELECT ar.user_id, ?, COALESCE(ar.agreement_date, ar.request_date)
+                    FROM auth_requests AS ar
+                    INNER JOIN users AS u ON u.user_id = ar.user_id
+                    WHERE ar.status = 'approved' AND ar.agreement_accepted = 1
+                    """,
+                    (marketplace,)
+                )
+
         await db.execute("""
             CREATE TABLE IF NOT EXISTS subscriptions (
                 user_id INTEGER PRIMARY KEY,
@@ -770,6 +804,62 @@ async def update_auth_request_status(user_id: int, status: str):
         await db.commit()
 
 
+async def save_marketplace_authorization(
+    user_id: int,
+    marketplace: Marketplace | str
+) -> None:
+    """Сохраняет факт успешной авторизации пользователя в маркетплейсе."""
+    marketplace_value = (
+        marketplace.value if isinstance(marketplace, Marketplace) else marketplace
+    )
+    if marketplace_value not in (
+        Marketplace.OZON.value,
+        Marketplace.WILDBERRIES.value,
+    ):
+        raise ValueError(f"Неподдерживаемый маркетплейс авторизации: {marketplace_value}")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
+        await db.execute(
+            """
+            INSERT INTO marketplace_authorizations (
+                user_id, marketplace, authorized_at
+            )
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id, marketplace) DO UPDATE SET
+                authorized_at = excluded.authorized_at
+            """,
+            (user_id, marketplace_value, datetime.now().isoformat())
+        )
+        await db.commit()
+
+
+async def has_marketplace_authorization(
+    user_id: int,
+    marketplace: Marketplace | str
+) -> bool:
+    """Проверяет, подтверждалась ли авторизация пользователя в маркетплейсе."""
+    marketplace_value = (
+        marketplace.value if isinstance(marketplace, Marketplace) else marketplace
+    )
+    if marketplace_value not in (
+        Marketplace.OZON.value,
+        Marketplace.WILDBERRIES.value,
+    ):
+        return False
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT 1
+            FROM marketplace_authorizations
+            WHERE user_id = ? AND marketplace = ?
+            """,
+            (user_id, marketplace_value)
+        )
+        return await cursor.fetchone() is not None
+
+
 async def delete_user_auth_data(user_id: int):
     """
     Удаляет все данные авторизации пользователя (отзыв согласия).
@@ -782,6 +872,12 @@ async def delete_user_auth_data(user_id: int):
         await db.execute("PRAGMA foreign_keys = ON")
 
         date_now = datetime.now().isoformat()
+
+        # Удаляем подтверждения авторизации по маркетплейсам
+        await db.execute(
+            "DELETE FROM marketplace_authorizations WHERE user_id = ?",
+            (user_id,)
+        )
 
         # Удаляем запрос на авторизацию
         await db.execute(
