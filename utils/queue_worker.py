@@ -124,6 +124,26 @@ def _unpack_cart_parse_result(result) -> tuple[list[dict], bool, int]:
     return result or [], False, 0
 
 
+def _should_use_existing_cart_page(
+    browser_manager,
+    user_id: int,
+    marketplace: str,
+    cart_url: str,
+    attempt: int,
+) -> bool:
+    """Определяет, можно ли не выполнять новый переход по URL корзины."""
+    if not browser_manager.has_cart_page(user_id, marketplace, cart_url):
+        return False
+
+    match marketplace:
+        case Marketplace.OZON.value:
+            return True
+        case Marketplace.WILDBERRIES.value:
+            return attempt > 1
+        case _:
+            return False
+
+
 def _index_current_products_by_key(products: list[dict], marketplace: str) -> dict[str, dict]:
     """Индексирует сохраненные товары только по однозначным ключам."""
     grouped_products: dict[str, list[dict]] = {}
@@ -337,7 +357,7 @@ class TaskQueue:
                     timeout=1.0
                 )
 
-                # Проверяем персональный режим техработ для пользователя
+                # Проверяем персональный флаг и общую паузу маркетплейса
                 user_id = task.get("user_id")
                 task_marketplace = task.get("marketplace")
                 if user_id and maintenance_mode.is_active(user_id, task_marketplace):
@@ -414,8 +434,10 @@ class TaskQueue:
                 maintenance_callback=lambda: self._activate_maintenance_mode(
                     task["user_id"],
                     Marketplace.AVITO.value,
-                    reason="обнаружена блокировка при парсинге объявления"
-                )
+                    reason="обнаружена блокировка при парсинге объявления",
+                    host_level=True,
+                ),
+                reuse_page=attempt > 1,
             )
             if result in ("maintenance_required", AVITO_CLOSED_MARKER) or result:
                 return result
@@ -623,15 +645,20 @@ class TaskQueue:
             # Определяем, нужно ли обновлять страницу или открывать новую
             # Проверяем, есть ли уже активный браузер для этого пользователя
             # И совпадает ли URL корзины с текущим открытым
-            is_refresh = False
-            if (
-                marketplace == Marketplace.OZON.value and
-                self.browser_manager.has_cart_page(user_id, marketplace, cart_url)
-            ):
-                is_refresh = True
+            is_refresh = _should_use_existing_cart_page(
+                self.browser_manager,
+                user_id,
+                marketplace,
+                cart_url,
+                attempt,
+            )
+            if marketplace == Marketplace.OZON.value and is_refresh:
                 logger.info(f"URL корзины {marketplace} совпадает, используем refresh")
             elif marketplace == Marketplace.WILDBERRIES.value:
-                logger.info("Для Wildberries открываем сохранённый URL корзины заново")
+                if is_refresh:
+                    logger.info("Повторно используем загруженную страницу Wildberries")
+                else:
+                    logger.info("Для Wildberries открываем сохранённый URL корзины заново")
             else:
                 logger.info(
                     f"URL корзины {marketplace} изменился или вкладка не открыта, "
@@ -648,7 +675,8 @@ class TaskQueue:
                         maintenance_callback=lambda: self._activate_maintenance_mode(
                             user_id,
                             marketplace,
-                            reason="обнаружена блокировка при парсинге корзины"
+                            reason="обнаружена блокировка при парсинге корзины",
+                            host_level=True,
                         )
                     )
                 case Marketplace.WILDBERRIES.value:
@@ -660,7 +688,8 @@ class TaskQueue:
                         maintenance_callback=lambda: self._activate_maintenance_mode(
                             user_id,
                             marketplace,
-                            reason="обнаружена блокировка при парсинге корзины"
+                            reason="обнаружена блокировка при парсинге корзины",
+                            host_level=True,
                         )
                     )
                 case _:
@@ -932,15 +961,20 @@ class TaskQueue:
             # Определяем, нужно ли обновлять страницу или открывать новую
             # Проверяем, есть ли уже активный браузер для этого пользователя
             # И совпадает ли URL корзины с текущим открытым
-            is_refresh = False
-            if (
-                marketplace == Marketplace.OZON.value and
-                self.browser_manager.has_cart_page(user_id, marketplace, cart_url)
-            ):
-                is_refresh = True
+            is_refresh = _should_use_existing_cart_page(
+                self.browser_manager,
+                user_id,
+                marketplace,
+                cart_url,
+                attempt,
+            )
+            if marketplace == Marketplace.OZON.value and is_refresh:
                 logger.info(f"URL корзины {marketplace} совпадает, используем refresh")
             elif marketplace == Marketplace.WILDBERRIES.value:
-                logger.info("Для Wildberries открываем сохранённый URL корзины заново")
+                if is_refresh:
+                    logger.info("Повторно используем загруженную страницу Wildberries")
+                else:
+                    logger.info("Для Wildberries открываем сохранённый URL корзины заново")
             else:
                 logger.info(
                     f"URL корзины {marketplace} изменился или вкладка не открыта, "
@@ -957,7 +991,8 @@ class TaskQueue:
                         maintenance_callback=lambda: self._activate_maintenance_mode(
                             user_id,
                             marketplace,
-                            reason="обнаружена блокировка при парсинге корзины"
+                            reason="обнаружена блокировка при парсинге корзины",
+                            host_level=True,
                         )
                     )
                 case Marketplace.WILDBERRIES.value:
@@ -969,7 +1004,8 @@ class TaskQueue:
                         maintenance_callback=lambda: self._activate_maintenance_mode(
                             user_id,
                             marketplace,
-                            reason="обнаружена блокировка при парсинге корзины"
+                            reason="обнаружена блокировка при парсинге корзины",
+                            host_level=True,
                         )
                     )
                 case _:
@@ -1176,42 +1212,56 @@ class TaskQueue:
         self,
         user_id: int,
         marketplace: str | None = None,
-        reason: str = "обнаружена блокировка"
+        reason: str = "обнаружена блокировка",
+        host_level: bool = False,
     ):
         """
-        Активирует режим техработ для конкретного пользователя.
+        Активирует персональный режим техработ или общую паузу маркетплейса.
 
         Args:
             user_id: ID пользователя
             marketplace: Маркетплейс, для которого обнаружена блокировка
             reason: Причина включения режима техработ
+            host_level: Включить временную общую паузу вместо персонального флага
         """
         logger.warning(
             f"Активация режима техработ для пользователя {user_id}, "
-            f"маркетплейс={marketplace}, причина={reason}"
+            f"маркетплейс={marketplace}, уровень={'хост' if host_level else 'пользователь'}, "
+            f"причина={reason}"
         )
 
-        # Включаем режим техработ для пользователя
-        maintenance_mode.enable(user_id, marketplace)
-        if marketplace:
+        if host_level and marketplace:
             maintenance_mode.enable_host(marketplace)
+            await self.browser_manager.close_marketplace_pages(marketplace)
+        else:
+            maintenance_mode.enable(user_id, marketplace)
+            if marketplace:
+                await self.browser_manager.close_user_marketplace_page(
+                    user_id,
+                    marketplace,
+                )
 
         # Отправляем уведомление администратору
         try:
             marketplace_suffix = f"_{marketplace}" if marketplace else ""
+            if host_level and marketplace:
+                flag_instructions = (
+                    "Общий флаг хоста: "
+                    f"maintenance_flags/maintenance_host_{marketplace}.flag\n"
+                    f"Автоматическое снятие через: "
+                    f"{config.HOST_MAINTENANCE_TTL_SECONDS} сек."
+                )
+            else:
+                flag_instructions = (
+                    "Для разблокировки удалите файл: "
+                    f"maintenance_flags/maintenance_{user_id}{marketplace_suffix}.flag"
+                )
+
             await self.bot.send_message(
                 config.ADMIN_USER_ID,
                 f"🚧 Активирован maintenance mode для пользователя {user_id}\n"
                 f"Маркетплейс: {marketplace or 'не определён'}\n"
-                f"Причина: {reason}\n\n"
-                f"Для разблокировки удалите файл: "
-                f"maintenance_flags/maintenance_{user_id}{marketplace_suffix}.flag\n"
-                + (
-                    f"Общий флаг хоста: "
-                    f"maintenance_flags/maintenance_host_{marketplace}.flag"
-                    if marketplace
-                    else ""
-                )
+                f"Причина: {reason}\n\n{flag_instructions}"
             )
         except Exception as e:
             logger.error(f"Не удалось отправить уведомление администратору: {e}")

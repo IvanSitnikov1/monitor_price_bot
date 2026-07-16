@@ -375,6 +375,24 @@ class BrowserInstance:
 
         return cart_page
 
+    async def close_marketplace_page(self, marketplace: str):
+        """Закрывает вкладку маркетплейса, не затрагивая профиль и другие вкладки."""
+        page = self._cart_pages.pop(marketplace, None)
+        self._current_cart_urls.pop(marketplace, None)
+
+        if not page or page.is_closed():
+            return
+
+        try:
+            await page.close()
+            logger.info(
+                f"[User {self.user_id}] Вкладка {marketplace} закрыта для сброса сессии"
+            )
+        except Exception as e:
+            logger.warning(
+                f"[User {self.user_id}] Не удалось закрыть вкладку {marketplace}: {e}"
+            )
+
     async def close(self):
         """Закрывает браузер и очищает состояние экземпляра пользователя."""
         self._cart_pages.clear()
@@ -505,6 +523,19 @@ class BrowserManager:
 
         await instance.close()
         logger.info(f"Активный браузер для user_id={user_id} закрыт")
+
+    async def close_user_marketplace_page(self, user_id: int, marketplace: str):
+        """Закрывает вкладку маркетплейса конкретного пользователя."""
+        instance = self._instances.get(user_id)
+        if not instance:
+            return
+
+        await instance.close_marketplace_page(marketplace)
+
+    async def close_marketplace_pages(self, marketplace: str):
+        """Закрывает вкладки маркетплейса во всех активных браузерах бота."""
+        for instance in list(self._instances.values()):
+            await instance.close_marketplace_page(marketplace)
 
     async def close_all(self):
         """Закрывает все браузеры, запущенные текущим менеджером."""

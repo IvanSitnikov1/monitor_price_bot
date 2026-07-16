@@ -1,5 +1,5 @@
-from pathlib import Path
 import time
+from pathlib import Path
 
 from core.models import Marketplace
 from config import config
@@ -7,7 +7,7 @@ from loggers import logger
 
 
 class MaintenanceMode:
-    """Управление персональным режимом технических работ для пользователей"""
+    """Управляет персональными и общими паузами обработки маркетплейсов."""
 
     def __init__(self):
         self.maintenance_dir = Path("maintenance_flags")
@@ -58,7 +58,7 @@ class MaintenanceMode:
 
         return (
             self._get_flag_file(user_id, marketplace).exists()
-            or self._get_host_flag_file(marketplace).exists()
+            or self.is_host_active(marketplace)
         )
 
     def enable(self, user_id: int, marketplace: Marketplace | str | None = None):
@@ -95,7 +95,11 @@ class MaintenanceMode:
         if not flag_file.exists():
             return False
 
-        age_seconds = time.time() - flag_file.stat().st_mtime
+        try:
+            age_seconds = time.time() - flag_file.stat().st_mtime
+        except FileNotFoundError:
+            return False
+
         if age_seconds >= config.HOST_MAINTENANCE_TTL_SECONDS:
             flag_file.unlink(missing_ok=True)
             logger.info(

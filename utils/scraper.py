@@ -13,6 +13,79 @@ from loggers import logger
 
 AVITO_CLOSED_MARKER = "avito_closed"
 
+_COMMON_BLOCK_SELECTORS = (
+    '[class*="captcha"]',
+    '[id*="captcha"]',
+    'iframe[src*="captcha"]',
+    '[data-marker*="captcha"]',
+)
+_COMMON_BLOCK_TEXTS = (
+    "Доступ ограничен",
+    "Access denied",
+    "Подтвердите, что вы не робот",
+    "Проверяем, что вы не робот",
+    "Verify you are human",
+)
+_COMMON_BLOCK_PATTERNS = (
+    r"доступ.{0,80}ограничен",
+    r"(?:подтвердите|проверяем|пройдите).{0,60}(?:не робот|проверку)",
+    r"access.{0,40}denied",
+    r"verify.{0,40}human",
+    r"слишком много запросов",
+    r"too many requests",
+)
+
+
+async def _check_explicit_block(
+    page,
+    marketplace: str,
+    selectors: tuple[str, ...] = (),
+    texts: tuple[str, ...] = (),
+) -> bool:
+    """Проверяет явные признаки антибот-блокировки без догадок по отсутствию DOM."""
+    for selector in (*_COMMON_BLOCK_SELECTORS, *selectors):
+        try:
+            locator = page.locator(selector).first
+            if await locator.count() > 0 and await locator.is_visible(timeout=500):
+                logger.warning(
+                    f"Обнаружена блокировка {marketplace} по селектору: {selector}"
+                )
+                return True
+        except Exception:
+            pass
+
+    try:
+        body_text = await page.locator("body").inner_text(timeout=2000)
+    except Exception:
+        body_text = ""
+
+    for text in (*_COMMON_BLOCK_TEXTS, *texts):
+        if text.casefold() in body_text.casefold():
+            logger.warning(f"Обнаружена блокировка {marketplace} по тексту: {text}")
+            return True
+
+    for pattern in _COMMON_BLOCK_PATTERNS:
+        if re.search(pattern, body_text, re.IGNORECASE | re.DOTALL):
+            logger.warning(
+                f"Обнаружена блокировка {marketplace} по шаблону текста: {pattern}"
+            )
+            return True
+
+    try:
+        title = await page.title()
+    except Exception:
+        title = ""
+
+    if re.search(
+        r"captcha|access denied|доступ ограничен|проверка.{0,20}робот",
+        title,
+        re.IGNORECASE,
+    ):
+        logger.warning(f"Обнаружена блокировка {marketplace} по заголовку: {title}")
+        return True
+
+    return False
+
 
 def _get_system_profile() -> Path:
     """
@@ -59,33 +132,25 @@ async def _human_delay(min_s=0.5, max_s=2.0):
     await asyncio.sleep(delay)
 
 
-async def _check_captcha(page) -> bool:
+async def _check_ozon_block(page) -> bool:
     """
-    Проверяет наличие капчи на странице.
+    Проверяет явные признаки блокировки Ozon.
 
     Args:
         page: Страница Playwright
 
     Returns:
-        True если капча обнаружена, False иначе
+        True если блокировка обнаружена, False иначе
     """
-    captcha_selectors = [
-        'text="Сопоставьте пазл"',
-        'text="двигая ползунок"',
-        '[class*="captcha"]',
-        '[id*="captcha"]',
-    ]
-
-    for selector in captcha_selectors:
-        try:
-            count = await page.locator(selector).count()
-            if count > 0:
-                logger.warning("Обнаружена капча на странице")
-                return True
-        except Exception:
-            pass
-
-    return False
+    return await _check_explicit_block(
+        page,
+        marketplace="Ozon",
+        selectors=(
+            'text="Сопоставьте пазл"',
+            'text="двигая ползунок"',
+        ),
+        texts=("Сопоставьте пазл", "двигая ползунок"),
+    )
 
 
 async def _check_bot_detection(page):
@@ -487,10 +552,10 @@ async def _scrape_ozon_cart(
     await page.screenshot(path=screenshot_path)
     logger.info(f"Скриншот корзины сохранён: {screenshot_path}")
 
-    # Проверка капчи
-    logger.info("Проверка наличия капчи")
-    if await _check_captcha(page):
-        logger.error("Обнаружена капча! Возвращаем ошибку для активации maintenance mode")
+    # Проверка явной блокировки
+    logger.info("Проверка явных признаков блокировки Ozon")
+    if await _check_ozon_block(page):
+        logger.error("Обнаружена блокировка Ozon, требуется общая пауза")
         if maintenance_callback:
             await maintenance_callback()
         return "maintenance_required"
@@ -592,32 +657,27 @@ async def _scrape_ozon_cart(
 
 async def _check_wildberries_block(page) -> bool:
     """Проверяет явные признаки блокировки Wildberries."""
-    block_selectors = [
-        'text="Проверяем, что вы не робот"',
-        'text="Подтвердите, что вы не робот"',
-        'text="Доступ ограничен"',
-        'text="Access denied"',
-        '[class*="captcha"]',
-        '[id*="captcha"]',
-    ]
+    return await _check_explicit_block(
+        page,
+        marketplace="Wildberries",
+        selectors=(
+            '[class*="robot"]',
+            '[data-testid*="captcha"]',
+        ),
+    )
 
-    for selector in block_selectors:
-        try:
-            if await page.locator(selector).count() > 0:
-                logger.warning(f"Обнаружена блокировка Wildberries: {selector}")
-                return True
-        except Exception:
-            pass
 
-    try:
-        title = await page.title()
-        if re.search(r"captcha|access denied|доступ ограничен", title, re.IGNORECASE):
-            logger.warning(f"Обнаружена блокировка Wildberries по title: {title}")
-            return True
-    except Exception:
-        pass
-
-    return False
+async def _check_avito_block(page) -> bool:
+    """Проверяет явные признаки блокировки Avito."""
+    return await _check_explicit_block(
+        page,
+        marketplace="Avito",
+        selectors=(
+            '[data-marker*="captcha"]',
+            'form[action*="captcha"]',
+        ),
+        texts=("Пройдите проверку, чтобы продолжить",),
+    )
 
 
 def _normalize_price(price_text: str | None) -> str | None:
@@ -650,7 +710,7 @@ async def scrape_wildberries_cart(
         url: URL корзины (формат: https://www.wildberries.ru/basket?shareId=...)
         user_id: ID пользователя Telegram
         browser_manager: Экземпляр BrowserManager для переиспользования браузера
-        is_refresh: Если True, обновляет существующую страницу вместо открытия новой
+        is_refresh: Если True, повторно разбирает уже загруженную страницу
         maintenance_callback: Callback для активации maintenance mode при блокировке
 
     Returns:
@@ -664,7 +724,20 @@ async def scrape_wildberries_cart(
     )
 
     try:
-        if hasattr(browser_manager, "open_cart_page"):
+        can_reuse_page = (
+            is_refresh
+            and hasattr(browser_manager, "has_cart_page")
+            and hasattr(browser_manager, "get_cart_page")
+            and browser_manager.has_cart_page(user_id, "wildberries", url)
+        )
+        if can_reuse_page:
+            page = await browser_manager.get_cart_page(
+                url,
+                user_id,
+                marketplace="wildberries"
+            )
+            logger.info("Повторно используем загруженную страницу Wildberries")
+        elif hasattr(browser_manager, "open_cart_page"):
             page = await browser_manager.open_cart_page(
                 url,
                 user_id,
@@ -858,15 +931,30 @@ async def scrape_avito_product(
     url: str,
     user_id: int,
     browser_manager,
-    maintenance_callback=None
+    maintenance_callback=None,
+    reuse_page: bool = False,
 ) -> dict[str, str | int | None] | str | None:
-    """Парсит отдельное объявление Avito через Playwright."""
+    """Парсит объявление Avito с возможностью повторно использовать загруженную страницу."""
     try:
-        page = await browser_manager.get_product_page(
-            product_url=url,
-            user_id=user_id,
-            marketplace="avito"
+        can_reuse_page = (
+            reuse_page
+            and hasattr(browser_manager, "has_cart_page")
+            and hasattr(browser_manager, "get_cart_page")
+            and browser_manager.has_cart_page(user_id, "avito", url)
         )
+        if can_reuse_page:
+            page = await browser_manager.get_cart_page(
+                url,
+                user_id,
+                marketplace="avito",
+            )
+            logger.info("Повторно используем загруженную страницу Avito")
+        else:
+            page = await browser_manager.get_product_page(
+                product_url=url,
+                user_id=user_id,
+                marketplace="avito"
+            )
         await _human_delay(1, 2)
 
         try:
@@ -875,6 +963,12 @@ async def scrape_avito_product(
             logger.warning("Avito: ожидание networkidle завершилось по тайм-ауту")
 
         await _human_like_behavior(page)
+        if await _check_avito_block(page):
+            logger.warning(f"Avito заблокировал доступ к объявлению: {url}")
+            if maintenance_callback:
+                await maintenance_callback()
+            return "maintenance_required"
+
         data = await page.evaluate("""
             () => {
                 const bodyText = document.body?.innerText || '';
@@ -882,12 +976,6 @@ async def scrape_avito_product(
                     '[data-marker="item-view/closed-warning"]'
                 );
                 const closedWarningText = closedWarning?.textContent || '';
-                const blockedTexts = [
-                    'Доступ ограничен',
-                    'Подтвердите, что вы не робот',
-                    'Проверяем, что вы не робот'
-                ];
-                const blocked = blockedTexts.some((text) => bodyText.includes(text));
                 const closed = closedWarningText.includes('Объявление снято с публикации');
                 const unavailable = bodyText.includes('Такой страницы не существует');
                 const title = document.querySelector(
@@ -906,15 +994,9 @@ async def scrape_avito_product(
                         '[data-marker="image-frame/image-wrapper"]'
                     )?.getAttribute('data-url');
 
-                return {blocked, closed, unavailable, title, price, imageUrl};
+                return {closed, unavailable, title, price, imageUrl};
             }
         """)
-
-        if data.get("blocked"):
-            logger.warning(f"Avito заблокировал доступ к объявлению: {url}")
-            if maintenance_callback:
-                await maintenance_callback()
-            return "maintenance_required"
 
         if data.get("closed"):
             logger.warning(f"Объявление Avito снято с публикации: {url}")
