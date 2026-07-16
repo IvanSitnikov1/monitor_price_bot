@@ -12,6 +12,7 @@ from loggers import logger
 
 
 AVITO_CLOSED_MARKER = "avito_closed"
+AVITO_DELETED_MARKER = "avito_deleted"
 
 _COMMON_BLOCK_SELECTORS = (
     '[class*="captcha"]',
@@ -977,6 +978,11 @@ async def scrape_avito_product(
                 );
                 const closedWarningText = closedWarning?.textContent || '';
                 const closed = closedWarningText.includes('Объявление снято с публикации');
+                const normalizedBodyText = bodyText.replace(/\\s+/g, ' ').toLowerCase();
+                const deletedByUser = (
+                    normalizedBodyText.includes('объявление не посмотреть') &&
+                    normalizedBodyText.includes('пользователь его удалил')
+                );
                 const unavailable = bodyText.includes('Такой страницы не существует');
                 const title = document.querySelector(
                     '[data-marker="item-view/title-info"]'
@@ -994,9 +1000,13 @@ async def scrape_avito_product(
                         '[data-marker="image-frame/image-wrapper"]'
                     )?.getAttribute('data-url');
 
-                return {closed, unavailable, title, price, imageUrl};
+                return {closed, deletedByUser, unavailable, title, price, imageUrl};
             }
         """)
+
+        if data.get("deletedByUser"):
+            logger.warning(f"Объявление Avito удалено пользователем: {url}")
+            return AVITO_DELETED_MARKER
 
         if data.get("closed"):
             logger.warning(f"Объявление Avito снято с публикации: {url}")
