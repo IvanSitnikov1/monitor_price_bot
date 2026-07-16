@@ -681,6 +681,40 @@ async def _check_avito_block(page) -> bool:
     )
 
 
+def _normalize_avito_page_text(text: str | None) -> str:
+    """Нормализует текст служебного состояния страницы Avito."""
+    normalized = (text or "").replace("\xa0", " ")
+    return re.sub(r"\s+", " ", normalized).strip().casefold()
+
+
+async def _check_avito_deleted(page) -> bool:
+    """Проверяет штатную страницу удаленного пользователем объявления Avito."""
+    try:
+        heading_texts = await page.locator("h1").all_text_contents()
+        paragraph_texts = await page.locator("p").all_text_contents()
+
+        has_deleted_heading = any(
+            "объявление не посмотреть" in _normalize_avito_page_text(text)
+            for text in heading_texts
+        )
+        has_deleted_paragraph = any(
+            "пользователь его удалил" in _normalize_avito_page_text(text)
+            for text in paragraph_texts
+        )
+        if has_deleted_heading and has_deleted_paragraph:
+            return True
+
+        body_text = await page.locator("body").inner_text(timeout=2000)
+        normalized_body_text = _normalize_avito_page_text(body_text)
+        return (
+            "объявление не посмотреть" in normalized_body_text
+            and "пользователь его удалил" in normalized_body_text
+        )
+    except Exception as e:
+        logger.debug(f"Avito: не удалось проверить страницу удаленного объявления: {e}")
+        return False
+
+
 def _normalize_price(price_text: str | None) -> str | None:
     """Приводит текст цены к формату '123 ₽'."""
     if not price_text:
@@ -963,6 +997,10 @@ async def scrape_avito_product(
         except PlaywrightTimeoutError:
             logger.warning("Avito: ожидание networkidle завершилось по тайм-ауту")
 
+        if await _check_avito_deleted(page):
+            logger.warning(f"Объявление Avito удалено пользователем: {url}")
+            return AVITO_DELETED_MARKER
+
         await _human_like_behavior(page)
         if await _check_avito_block(page):
             logger.warning(f"Avito заблокировал доступ к объявлению: {url}")
@@ -978,11 +1016,6 @@ async def scrape_avito_product(
                 );
                 const closedWarningText = closedWarning?.textContent || '';
                 const closed = closedWarningText.includes('Объявление снято с публикации');
-                const normalizedBodyText = bodyText.replace(/\\s+/g, ' ').toLowerCase();
-                const deletedByUser = (
-                    normalizedBodyText.includes('объявление не посмотреть') &&
-                    normalizedBodyText.includes('пользователь его удалил')
-                );
                 const unavailable = bodyText.includes('Такой страницы не существует');
                 const title = document.querySelector(
                     '[data-marker="item-view/title-info"]'
@@ -1000,13 +1033,9 @@ async def scrape_avito_product(
                         '[data-marker="image-frame/image-wrapper"]'
                     )?.getAttribute('data-url');
 
-                return {closed, deletedByUser, unavailable, title, price, imageUrl};
+                return {closed, unavailable, title, price, imageUrl};
             }
         """)
-
-        if data.get("deletedByUser"):
-            logger.warning(f"Объявление Avito удалено пользователем: {url}")
-            return AVITO_DELETED_MARKER
 
         if data.get("closed"):
             logger.warning(f"Объявление Avito снято с публикации: {url}")
