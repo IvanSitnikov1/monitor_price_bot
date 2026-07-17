@@ -1,6 +1,5 @@
 import asyncio
 import random
-from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -14,8 +13,10 @@ from handlers import (
     auth_router
 )
 from core.database import setup_database
+from config import config
 from utils.price_updater import update_all_prices
 from loggers import logger
+from utils.process_lock import ProcessLock, ProcessLockError
 from utils.queue_worker import TaskQueue
 
 
@@ -40,7 +41,11 @@ async def schedule_price_update_with_delay(task_queue):
     await update_all_prices(task_queue)
 
 
-async def start_bot():
+class BotStartupError(RuntimeError):
+    """Ошибка безопасного запуска рабочего экземпляра бота."""
+
+
+async def _run_bot():
     logger.info("=" * 60)
     logger.info("Запуск бота мониторинга цен Ozon")
     logger.info("=" * 60)
@@ -99,5 +104,21 @@ async def start_bot():
         logger.info("Очередь задач остановлена")
 
 
+async def start_bot():
+    """Запускает единственный рабочий экземпляр бота вне режима диагностики."""
+    if config.OZON_DIAGNOSTICS_ENABLED:
+        raise BotStartupError(
+            "Обычный запуск бота запрещён: включён диагностический режим Ozon. "
+            "Запустите диагностический сценарий или отключите OZON_DIAGNOSTICS_ENABLED."
+        )
+
+    with ProcessLock():
+        await _run_bot()
+
+
 if __name__ == "__main__":
-    asyncio.run(start_bot())
+    try:
+        asyncio.run(start_bot())
+    except (BotStartupError, ProcessLockError) as error:
+        logger.error(str(error))
+        raise SystemExit(1) from None

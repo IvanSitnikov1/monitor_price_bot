@@ -82,7 +82,7 @@ async def _check_explicit_block(
         title,
         re.IGNORECASE,
     ):
-        logger.warning(f"Обнаружена блокировка {marketplace} по заголовку: {title}")
+        logger.warning(f"Обнаружена блокировка {marketplace} по заголовку страницы")
         return True
 
     return False
@@ -160,13 +160,21 @@ def _normalize_authorization_control_text(text: str | None) -> str:
     return re.sub(r"\s+", " ", normalized).strip().casefold()
 
 
-async def _has_visible_login_control(page, selector: str, marketplace: str) -> bool:
+async def _has_visible_login_control(
+    page,
+    selector: str,
+    marketplace: str,
+    safe_logging: bool = False,
+) -> bool:
     """Ищет видимую кнопку входа с точным текстом «Войти»."""
     try:
         controls = page.locator(selector)
         controls_count = await controls.count()
     except Exception as e:
-        logger.debug(f"{marketplace}: не удалось найти элементы входа: {e}")
+        error_details = type(e).__name__ if safe_logging else str(e)
+        logger.debug(
+            f"{marketplace}: не удалось найти элементы входа: {error_details}"
+        )
         return False
 
     for index in range(controls_count):
@@ -182,20 +190,139 @@ async def _has_visible_login_control(page, selector: str, marketplace: str) -> b
                 )
                 return True
         except Exception as e:
+            error_details = type(e).__name__ if safe_logging else str(e)
             logger.debug(
-                f"{marketplace}: не удалось проверить элемент входа {index + 1}: {e}"
+                f"{marketplace}: не удалось проверить элемент входа "
+                f"{index + 1}: {error_details}"
             )
 
     return False
 
 
-async def _check_ozon_logged_out(page) -> bool:
+async def _check_ozon_logged_out(page, safe_logging: bool = False) -> bool:
     """Проверяет видимый анонимный блок профиля Ozon."""
     return await _has_visible_login_control(
         page,
         '[data-widget="profileMenuAnonymous"]',
         "Ozon",
+        safe_logging=safe_logging,
     )
+
+
+async def _check_ozon_authorized_profile(page, safe_logging: bool = False) -> bool:
+    """Ищет видимую ссылку на личный кабинет в неанонимном виджете профиля."""
+    selector = (
+        '[data-widget^="profileMenu"]:not([data-widget*="Anonymous"])'
+        '[href^="/my/"], '
+        '[data-widget^="profileMenu"]:not([data-widget*="Anonymous"]) '
+        'a[href^="/my/"]'
+    )
+    try:
+        controls = page.locator(selector)
+        controls_count = await controls.count()
+    except Exception as error:
+        error_details = type(error).__name__ if safe_logging else str(error)
+        logger.debug(
+            f"Ozon: не удалось найти признак личного кабинета: {error_details}"
+        )
+        return False
+
+    for index in range(controls_count):
+        try:
+            if await controls.nth(index).is_visible(timeout=500):
+                return True
+        except Exception as error:
+            error_details = type(error).__name__ if safe_logging else str(error)
+            logger.debug(
+                "Ozon: не удалось проверить признак личного кабинета "
+                f"{index + 1}: {error_details}"
+            )
+
+    return False
+
+
+async def probe_ozon_diagnostic_state(
+    page,
+    emulate_full_update: bool,
+    settle_wait_ms: int = 4000,
+) -> dict[str, object]:
+    """Проверяет состояние Ozon без скриншота, парсинга товаров и изменения данных."""
+    networkidle_timeout = False
+    explicit_block = False
+    explicit_block_initial = False
+    anonymous_initial: bool | None = None
+    anonymous_final: bool | None = None
+    authorized_initial: bool | None = None
+    authorized_final: bool | None = None
+    document_ready_state: str | None = None
+    try:
+        explicit_block_initial = await _check_ozon_block(page)
+        explicit_block = explicit_block_initial
+        anonymous_initial = await _check_ozon_logged_out(page, safe_logging=True)
+        authorized_initial = (
+            True
+            if await _check_ozon_authorized_profile(page, safe_logging=True)
+            else None
+        )
+
+        if emulate_full_update:
+            await _human_delay()
+            await _human_like_behavior(page)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=10000)
+            except PlaywrightTimeoutError:
+                networkidle_timeout = True
+
+        await asyncio.sleep(settle_wait_ms / 1000)
+        anonymous_final = await _check_ozon_logged_out(page, safe_logging=True)
+        authorized_final = (
+            True
+            if await _check_ozon_authorized_profile(page, safe_logging=True)
+            else None
+        )
+        explicit_block = explicit_block or await _check_ozon_block(page)
+        document_ready_state = await page.evaluate("document.readyState")
+        if explicit_block:
+            auth_state = "unknown"
+        elif anonymous_final and authorized_final:
+            auth_state = "ambiguous"
+        elif anonymous_final:
+            auth_state = "anonymous"
+        elif authorized_final:
+            auth_state = "authorized"
+        else:
+            auth_state = "unknown"
+        return {
+            "anonymous_control_visible_initial": anonymous_initial,
+            "anonymous_text_matches_initial": anonymous_initial,
+            "anonymous_control_visible": anonymous_final,
+            "anonymous_text_matches": anonymous_final,
+            "authorized_control_visible_initial": authorized_initial,
+            "authorized_control_visible": authorized_final,
+            "auth_state": auth_state,
+            "document_ready_state": document_ready_state,
+            "explicit_block_detected_initial": explicit_block_initial,
+            "explicit_block_detected": explicit_block,
+            "networkidle_timeout": networkidle_timeout,
+            "settle_wait_ms": settle_wait_ms,
+            "probe_error": None,
+        }
+    except Exception as error:
+        return {
+            "anonymous_control_visible_initial": anonymous_initial,
+            "anonymous_text_matches_initial": anonymous_initial,
+            "anonymous_control_visible": anonymous_final,
+            "anonymous_text_matches": anonymous_final,
+            "authorized_control_visible_initial": authorized_initial,
+            "authorized_control_visible": authorized_final,
+            "auth_state": "unknown",
+            "document_ready_state": document_ready_state,
+            "explicit_block_detected_initial": explicit_block_initial,
+            "explicit_block_detected": explicit_block,
+            "networkidle_timeout": networkidle_timeout,
+            "settle_wait_ms": settle_wait_ms,
+            "probe_error": type(error).__name__,
+        }
 
 
 async def _check_wildberries_logged_out(page) -> bool:

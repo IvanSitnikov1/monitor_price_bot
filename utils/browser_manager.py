@@ -6,10 +6,18 @@ import subprocess
 import time
 from pathlib import Path
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Response
 from playwright_stealth import Stealth
 
 from loggers import logger
+
+
+class DiagnosticNavigationError(RuntimeError):
+    """Безопасная ошибка одиночного диагностического перехода."""
+
+
+class BrowserIdentityError(RuntimeError):
+    """Ошибка проверки профиля, процесса или CDP-порта Chromium."""
 
 
 class BrowserInstance:
@@ -17,15 +25,37 @@ class BrowserInstance:
     Экземпляр браузера для одного пользователя.
     """
 
-    def __init__(self, user_id: int, port: int):
+    def __init__(
+        self,
+        user_id: int,
+        port: int,
+        diagnostic_mode: bool = False,
+        refuse_existing_profile: bool = False,
+    ):
         self.user_id = user_id
         self.port = port
+        self.diagnostic_mode = diagnostic_mode
+        self.refuse_existing_profile = refuse_existing_profile
         self._playwright = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._cart_pages: dict[str, Page] = {}
-        self._chrome_process = None
+        self._chrome_process: subprocess.Popen | None = None
+        self._chrome_pid: int | None = None
         self._current_cart_urls: dict[str, str] = {}
+
+    @property
+    def _log_scope(self) -> str:
+        """Возвращает безопасную область логирования экземпляра."""
+        if self.diagnostic_mode:
+            return "[Диагностика Ozon]"
+
+        return f"[User {self.user_id}]"
+
+    @property
+    def user_data_dir(self) -> Path:
+        """Возвращает абсолютный путь постоянного профиля пользователя."""
+        return Path(f"user_data/{self.user_id}").absolute()
 
     def _start_chrome_manually(
         self,
@@ -44,8 +74,12 @@ class BrowserInstance:
             Процесс Chrome или None при ошибке
         """
         # Логируем DISPLAY для диагностики
-        display = os.environ.get("DISPLAY", "не установлен")
-        logger.info(f"DISPLAY переменная окружения: {display}")
+        display = os.environ.get("DISPLAY")
+        if self.diagnostic_mode:
+            display_state = "установлен" if display else "не установлен"
+            logger.info(f"{self._log_scope} DISPLAY {display_state}")
+        else:
+            logger.info(f"DISPLAY переменная окружения: {display or 'не установлен'}")
 
         chrome_cmd = [
             "chromium",
@@ -58,43 +92,270 @@ class BrowserInstance:
         ]
 
         try:
-            logger.info(f"Запуск Chrome вручную через subprocess: {' '.join(chrome_cmd)}")
+            if self.diagnostic_mode:
+                logger.info(
+                    f"{self._log_scope} Запуск Chromium с приватным профилем "
+                    f"на CDP-порту {port}"
+                )
+            else:
+                logger.info(f"Запуск Chrome вручную через subprocess: {' '.join(chrome_cmd)}")
             process = subprocess.Popen(
                 chrome_cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True  # Отделяем от родительского процесса
             )
-            logger.info(f"Chrome запущен вручную, PID: {process.pid}")
+            logger.info(f"{self._log_scope} Chrome запущен вручную, PID: {process.pid}")
             # Даём Chrome время на запуск
             time.sleep(3)
             return process
         except Exception as e:
-            logger.error(f"Не удалось запустить Chrome вручную: {e}")
+            if self.diagnostic_mode:
+                logger.error(
+                    f"{self._log_scope} Не удалось запустить Chrome: {type(e).__name__}"
+                )
+            else:
+                logger.error(f"Не удалось запустить Chrome вручную: {e}")
             return None
+
+    @staticmethod
+    def _read_process_args(pid: int) -> list[str] | None:
+        """Читает аргументы процесса без объединения и неразличимых подстрок."""
+        try:
+            raw_args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\x00")
+            return [arg.decode() for arg in raw_args if arg]
+        except (OSError, UnicodeDecodeError):
+            return None
+
+    @staticmethod
+    def _get_process_option(args: list[str], option: str) -> str | None:
+        """Возвращает точное значение аргумента Chromium в двух допустимых формах."""
+        prefix = f"{option}="
+        for index, argument in enumerate(args):
+            if argument.startswith(prefix):
+                return argument[len(prefix):]
+            if argument == option and index + 1 < len(args):
+                return args[index + 1]
+
+        return None
+
+    @staticmethod
+    def _is_chromium_process(args: list[str]) -> bool:
+        """Исключает чужие процессы с похожими аргументами командной строки."""
+        executable_name = Path(args[0]).name.casefold()
+        return executable_name in {
+            "chrome",
+            "chromium",
+            "chromium-browser",
+            "google-chrome",
+            "google-chrome-stable",
+        }
+
+    @staticmethod
+    def _resolve_process_path(pid: int, raw_path: str) -> Path | None:
+        """Приводит путь из аргумента процесса к абсолютному в его рабочем каталоге."""
+        process_path = Path(raw_path)
+        if not process_path.is_absolute():
+            try:
+                process_cwd = Path(os.readlink(f"/proc/{pid}/cwd"))
+            except OSError:
+                return None
+            process_path = process_cwd / process_path
+
+        try:
+            return process_path.resolve()
+        except OSError:
+            return None
+
+    @staticmethod
+    def _listening_socket_inodes(port: int) -> set[str] | None:
+        """Возвращает inode слушающих TCP-сокетов указанного локального порта."""
+        inodes: set[str] = set()
+        table_read = False
+        for table_path in (Path("/proc/net/tcp"), Path("/proc/net/tcp6")):
+            try:
+                lines = table_path.read_text().splitlines()[1:]
+            except OSError:
+                continue
+
+            table_read = True
+            for line in lines:
+                fields = line.split()
+                if len(fields) < 10 or fields[3] != "0A":
+                    continue
+
+                try:
+                    local_port = int(fields[1].rsplit(":", 1)[1], 16)
+                except (IndexError, ValueError):
+                    continue
+
+                if local_port == port:
+                    inodes.add(fields[9])
+
+        return inodes if table_read else None
+
+    @staticmethod
+    def _process_group_pids(process_group: int) -> set[int]:
+        """Возвращает процессы из указанной группы текущего пользователя."""
+        pids = set()
+        for process_dir in Path("/proc").glob("[0-9]*"):
+            try:
+                pid = int(process_dir.name)
+                if os.getpgid(pid) == process_group:
+                    pids.add(pid)
+            except (OSError, ValueError):
+                continue
+
+        return pids
+
+    @staticmethod
+    def _process_socket_inodes(pids: set[int]) -> set[str]:
+        """Возвращает inode сокетов, открытых указанными процессами."""
+        inodes = set()
+        for pid in pids:
+            for descriptor in Path(f"/proc/{pid}/fd").glob("*"):
+                try:
+                    target = os.readlink(descriptor)
+                except OSError:
+                    continue
+
+                if target.startswith("socket:[") and target.endswith("]"):
+                    inodes.add(target[8:-1])
+
+        return inodes
+
+    def _owns_listening_port(self, process_group: int) -> bool:
+        """Проверяет принадлежность CDP-сокета группе запущенного Chromium."""
+        listening_inodes = self._listening_socket_inodes(self.port)
+        if listening_inodes is None or not listening_inodes:
+            return False
+
+        process_pids = self._process_group_pids(process_group)
+        process_inodes = self._process_socket_inodes(process_pids)
+        return bool(listening_inodes & process_inodes)
+
+    @classmethod
+    def _find_main_processes(
+        cls,
+        user_data_dir: Path | None = None,
+        port: int | None = None,
+        require_remote_debugging: bool = False,
+    ) -> list[int]:
+        """Находит основные Chromium-процессы по точным аргументам профиля и порта."""
+        expected_profile = user_data_dir.resolve() if user_data_dir is not None else None
+
+        processes = []
+        for process_dir in Path("/proc").glob("[0-9]*"):
+            try:
+                pid = int(process_dir.name)
+            except ValueError:
+                continue
+
+            args = cls._read_process_args(pid)
+            if (
+                not args
+                or not cls._is_chromium_process(args)
+                or cls._get_process_option(args, "--type") is not None
+            ):
+                continue
+
+            process_profile = cls._get_process_option(args, "--user-data-dir")
+            if expected_profile is not None and (
+                process_profile is None
+                or cls._resolve_process_path(pid, process_profile) != expected_profile
+            ):
+                continue
+
+            process_port = cls._get_process_option(args, "--remote-debugging-port")
+            if port is not None and process_port != str(port):
+                continue
+            if require_remote_debugging and process_port is None:
+                continue
+
+            processes.append(pid)
+
+        return sorted(processes)
 
     @staticmethod
     def _find_process_for_profile(user_data_dir: Path) -> int | None:
         """Находит основной Chromium-процесс, использующий профиль бота."""
-        expected_profile = str(user_data_dir.resolve())
+        processes = BrowserInstance._find_main_processes(
+            user_data_dir=user_data_dir,
+            require_remote_debugging=True,
+        )
+        return processes[0] if processes else None
 
-        for process_dir in Path("/proc").glob("[0-9]*"):
+    def _resolve_chrome_pid(self, user_data_dir: Path) -> int:
+        """Проверяет единственный основной процесс с ожидаемыми профилем и портом."""
+        if not self._chrome_process:
+            raise BrowserIdentityError("Процесс Chromium не был запущен")
+
+        candidates = self._find_main_processes(user_data_dir, self.port)
+        port_candidates = self._find_main_processes(port=self.port)
+        owned_candidates = []
+        for pid in candidates:
             try:
-                pid = int(process_dir.name)
-                command_line = (
-                    (process_dir / "cmdline").read_bytes().replace(b"\x00", b" ").decode()
-                )
-            except (OSError, UnicodeDecodeError, ValueError):
+                if pid == self._chrome_process.pid or os.getpgid(pid) == self._chrome_process.pid:
+                    owned_candidates.append(pid)
+            except ProcessLookupError:
                 continue
 
-            if (
-                expected_profile in command_line
-                and "--remote-debugging-port=" in command_line
-                and "--type=" not in command_line
-            ):
-                return pid
+        socket_owned = self._owns_listening_port(self._chrome_process.pid)
+        if (
+            len(owned_candidates) != 1
+            or port_candidates != owned_candidates
+            or not socket_owned
+        ):
+            raise BrowserIdentityError(
+                "Не подтвержден единственный Chromium-процесс с ожидаемыми "
+                "CDP-портом и профилем"
+            )
 
-        return None
+        return owned_candidates[0]
+
+    def get_runtime_info(self) -> dict[str, object]:
+        """Возвращает сведения для приватного диагностического отчета."""
+        user_data_dir = self.user_data_dir
+        matching_processes = self._find_main_processes(user_data_dir, self.port)
+        port_processes = self._find_main_processes(port=self.port)
+        pid = self._chrome_pid
+        args = self._read_process_args(pid) if pid else None
+        process_alive = bool(pid and Path(f"/proc/{pid}").exists())
+        process_profile = self._get_process_option(args, "--user-data-dir") if args else None
+        profile_matches = bool(
+            pid
+            and process_profile
+            and self._resolve_process_path(pid, process_profile) == user_data_dir.resolve()
+        )
+        process_port = (
+            self._get_process_option(args, "--remote-debugging-port") if args else None
+        )
+        port_matches = process_port == str(self.port)
+        process_group = self._chrome_process.pid if self._chrome_process else None
+        listening_socket_owned = bool(
+            process_group and self._owns_listening_port(process_group)
+        )
+        return {
+            "pid": pid,
+            "port": self.port,
+            "process_alive": process_alive,
+            "profile_matches": profile_matches,
+            "port_matches": port_matches,
+            "matching_process_count": len(matching_processes),
+            "port_process_count": len(port_processes),
+            "listening_socket_owned": listening_socket_owned,
+            "context_count": len(self._browser.contexts) if self._browser else 0,
+            "page_count": len(self._context.pages) if self._context else 0,
+            "browser_version": self._browser.version if self._browser else None,
+            "identity_verified": (
+                process_alive
+                and profile_matches
+                and port_matches
+                and len(matching_processes) == 1
+                and port_processes == matching_processes
+                and listening_socket_owned
+            ),
+        }
 
     @staticmethod
     def _terminate_process(pid: int) -> None:
@@ -123,6 +384,38 @@ class BrowserInstance:
         except ProcessLookupError:
             pass
 
+    def _terminate_started_chromium(self) -> None:
+        """Завершает только группу Chromium, созданную этим экземпляром, и ожидает launcher."""
+        if not self._chrome_process:
+            return
+
+        launcher_pid = self._chrome_process.pid
+        try:
+            process_group = os.getpgid(launcher_pid)
+        except ProcessLookupError:
+            process_group = launcher_pid
+
+        try:
+            os.killpg(process_group, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if not self._process_group_pids(process_group):
+                break
+            time.sleep(0.1)
+        else:
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+        try:
+            self._chrome_process.wait(timeout=1)
+        except (subprocess.TimeoutExpired, ChildProcessError):
+            pass
+
     async def ensure_browser(self) -> tuple[Browser, BrowserContext]:
         """
         Гарантирует, что браузер запущен и подключен.
@@ -132,41 +425,62 @@ class BrowserInstance:
         """
         if self._browser and self._context:
             logger.info(
-                f"[User {self.user_id}] Используем существующий браузер "
+                f"{self._log_scope} Используем существующий браузер "
                 f"на порту {self.port}"
             )
             return self._browser, self._context
 
         # Определяем профиль
-        user_profile = Path(f"user_data/{self.user_id}").absolute()
+        user_profile = self.user_data_dir
 
         # Новые профили создаются пустыми и не наследуют системное состояние браузера.
         if not user_profile.exists() or not (user_profile / "Default").exists():
-            logger.info(f"[User {self.user_id}] Создаём пустой профиль Chromium")
+            if self.diagnostic_mode:
+                raise BrowserIdentityError("Постоянный профиль пользователя не найден")
+            logger.info(f"{self._log_scope} Создаём пустой профиль Chromium")
             (user_profile / "Default").mkdir(parents=True, exist_ok=True)
 
         user_data_dir = user_profile
-        logger.info(f"[User {self.user_id}] Используется профиль: {user_data_dir}")
+        if self.diagnostic_mode:
+            logger.info(f"{self._log_scope} Используется приватный профиль пользователя")
+        else:
+            logger.info(f"{self._log_scope} Используется профиль: {user_data_dir}")
 
-        self._playwright = await async_playwright().start()
+        existing_processes = self._find_main_processes(user_data_dir=user_data_dir)
         stale_pid = self._find_process_for_profile(user_data_dir)
-        if stale_pid:
-            logger.warning(
-                f"[User {self.user_id}] Завершаем старый Chromium-процесс "
-                f"{stale_pid} для профиля {user_data_dir}"
+        if self.refuse_existing_profile and existing_processes:
+            raise BrowserIdentityError(
+                "Профиль пользователя уже открыт другим Chromium"
             )
+        if stale_pid:
+            if self.diagnostic_mode:
+                logger.warning(
+                    f"{self._log_scope} Завершаем старый Chromium-процесс "
+                    f"{stale_pid} для приватного профиля"
+                )
+            else:
+                logger.warning(
+                    f"{self._log_scope} Завершаем старый Chromium-процесс "
+                    f"{stale_pid} для профиля {user_data_dir}"
+                )
             self._terminate_process(stale_pid)
 
+        self._playwright = await async_playwright().start()
         cdp_url = f"http://127.0.0.1:{self.port}"
-        logger.info(f"[User {self.user_id}] Запускаем собственный Chrome на {cdp_url}")
+        logger.info(f"{self._log_scope} Запускаем собственный Chrome на {cdp_url}")
         self._chrome_process = self._start_chrome_manually(user_data_dir, port=self.port)
         if not self._chrome_process:
             raise RuntimeError("Не удалось запустить Chrome")
 
-        logger.info(f"[User {self.user_id}] Ожидание запуска Chrome")
+        logger.info(f"{self._log_scope} Ожидание запуска Chrome")
         await asyncio.sleep(5)
 
         try:
+            if self.diagnostic_mode:
+                self._chrome_pid = self._resolve_chrome_pid(user_data_dir)
+            else:
+                candidates = self._find_main_processes(user_data_dir, self.port)
+                self._chrome_pid = candidates[0] if len(candidates) == 1 else None
             self._browser = await self._playwright.chromium.connect_over_cdp(cdp_url)
             contexts = self._browser.contexts
             if not contexts:
@@ -174,17 +488,48 @@ class BrowserInstance:
 
             self._context = contexts[0]
             logger.info(
-                f"[User {self.user_id}] Подключились к собственному Chrome, "
+                f"{self._log_scope} Подключились к собственному Chrome, "
                 f"контекстов: {len(contexts)}"
             )
         except Exception as error:
-            logger.error(f"[User {self.user_id}] Не удалось подключиться к Chrome: {error}")
+            if self.diagnostic_mode:
+                logger.error(
+                    f"{self._log_scope} Не удалось подключиться к Chrome: "
+                    f"{type(error).__name__}"
+                )
+            else:
+                logger.error(f"{self._log_scope} Не удалось подключиться к Chrome: {error}")
             if self._chrome_process:
-                self._terminate_process(self._chrome_process.pid)
+                if self.diagnostic_mode:
+                    self._terminate_started_chromium()
+                else:
+                    self._terminate_process(self._chrome_process.pid)
                 self._chrome_process = None
+                self._chrome_pid = None
             raise
 
         return self._browser, self._context
+
+    async def open_diagnostic_page(
+        self,
+        url: str,
+        apply_stealth: bool,
+    ) -> tuple[Page, Response | None]:
+        """Открывает ровно одну диагностическую вкладку и выполняет один переход."""
+        _, context = await self.ensure_browser()
+        page = await context.new_page()
+        if apply_stealth:
+            await self._prepare_page(page, "ozon")
+
+        logger.info(f"{self._log_scope} Выполняется одиночный переход на Ozon")
+        try:
+            response = await page.goto(url, timeout=45000, wait_until="domcontentloaded")
+        except Exception as error:
+            raise DiagnosticNavigationError(
+                f"Диагностический переход не выполнен: {type(error).__name__}"
+            ) from None
+        logger.info(f"{self._log_scope} Одиночный переход на Ozon завершен")
+        return page, response
 
     def has_cart_page(self, marketplace: str, cart_url: str) -> bool:
         """
@@ -232,7 +577,7 @@ class BrowserInstance:
             webgl_vendor=False,
         )
         await stealth.apply_stealth_async(page)
-        logger.info(f"[User {self.user_id}] Stealth-патчи применены для {marketplace}")
+        logger.info(f"{self._log_scope} Stealth-патчи применены для {marketplace}")
 
     async def get_cart_page(self, cart_url: str, marketplace: str = "ozon") -> Page:
         """
@@ -401,9 +746,14 @@ class BrowserInstance:
         if self._browser:
             try:
                 await self._browser.close()
-                logger.info(f"[User {self.user_id}] Браузер закрыт")
+                logger.info(f"{self._log_scope} Браузер закрыт")
             except Exception as e:
-                logger.warning(f"[User {self.user_id}] Не удалось закрыть браузер: {e}")
+                if self.diagnostic_mode:
+                    logger.warning(
+                        f"{self._log_scope} Не удалось закрыть браузер: {type(e).__name__}"
+                    )
+                else:
+                    logger.warning(f"{self._log_scope} Не удалось закрыть браузер: {e}")
             finally:
                 self._browser = None
                 self._context = None
@@ -411,20 +761,35 @@ class BrowserInstance:
         if self._playwright:
             try:
                 await self._playwright.stop()
-                logger.info(f"[User {self.user_id}] Playwright остановлен")
+                logger.info(f"{self._log_scope} Playwright остановлен")
             except Exception as e:
-                logger.warning(f"[User {self.user_id}] Не удалось остановить Playwright: {e}")
+                if self.diagnostic_mode:
+                    logger.warning(
+                        f"{self._log_scope} Не удалось остановить Playwright: "
+                        f"{type(e).__name__}"
+                    )
+                else:
+                    logger.warning(f"{self._log_scope} Не удалось остановить Playwright: {e}")
             finally:
                 self._playwright = None
 
         if self._chrome_process:
             try:
-                self._terminate_process(self._chrome_process.pid)
-                logger.info(f"[User {self.user_id}] Процесс Chrome остановлен")
+                if self.diagnostic_mode:
+                    self._terminate_started_chromium()
+                else:
+                    self._terminate_process(self._chrome_process.pid)
+                logger.info(f"{self._log_scope} Процесс Chrome остановлен")
             except Exception as e:
-                logger.warning(f"[User {self.user_id}] Не удалось остановить Chrome: {e}")
+                if self.diagnostic_mode:
+                    logger.warning(
+                        f"{self._log_scope} Не удалось остановить Chrome: {type(e).__name__}"
+                    )
+                else:
+                    logger.warning(f"{self._log_scope} Не удалось остановить Chrome: {e}")
             finally:
                 self._chrome_process = None
+                self._chrome_pid = None
 
 
 class BrowserManager:
@@ -433,8 +798,15 @@ class BrowserManager:
     Каждый пользователь получает свой Chrome процесс на отдельном порту.
     """
 
-    def __init__(self, base_port: int = 9223):
+    def __init__(
+        self,
+        base_port: int = 9223,
+        diagnostic_mode: bool = False,
+        refuse_existing_profiles: bool = False,
+    ):
         self.base_port = base_port
+        self.diagnostic_mode = diagnostic_mode
+        self.refuse_existing_profiles = refuse_existing_profiles
         self._instances: dict[int, BrowserInstance] = {}
         self._port_counter = 0
 
@@ -471,11 +843,19 @@ class BrowserManager:
         """
         if user_id not in self._instances:
             port = self._get_next_port()
-            logger.info(
-                f"Создание нового экземпляра браузера для user_id={user_id} "
-                f"на порту {port}"
+            if self.diagnostic_mode:
+                logger.info(f"Создание диагностического Chromium на порту {port}")
+            else:
+                logger.info(
+                    f"Создание нового экземпляра браузера для user_id={user_id} "
+                    f"на порту {port}"
+                )
+            self._instances[user_id] = BrowserInstance(
+                user_id,
+                port,
+                diagnostic_mode=self.diagnostic_mode,
+                refuse_existing_profile=self.refuse_existing_profiles,
             )
-            self._instances[user_id] = BrowserInstance(user_id, port)
 
         return self._instances[user_id]
 
@@ -518,11 +898,17 @@ class BrowserManager:
         """
         instance = self._instances.pop(user_id, None)
         if not instance:
-            logger.info(f"Активный браузер для user_id={user_id} не найден")
+            if self.diagnostic_mode:
+                logger.info("Активный диагностический браузер не найден")
+            else:
+                logger.info(f"Активный браузер для user_id={user_id} не найден")
             return
 
         await instance.close()
-        logger.info(f"Активный браузер для user_id={user_id} закрыт")
+        if self.diagnostic_mode:
+            logger.info("Активный диагностический браузер закрыт")
+        else:
+            logger.info(f"Активный браузер для user_id={user_id} закрыт")
 
     async def close_user_marketplace_page(self, user_id: int, marketplace: str):
         """Закрывает вкладку маркетплейса конкретного пользователя."""
@@ -542,6 +928,31 @@ class BrowserManager:
         user_ids = list(self._instances)
         for user_id in user_ids:
             await self.close_user_browser(user_id)
+
+    async def connect_user_browser(
+        self,
+        user_id: int,
+    ) -> tuple[Browser, BrowserContext]:
+        """Подключает браузер пользователя без создания вкладки и навигации."""
+        instance = self._get_instance(user_id)
+        return await instance.ensure_browser()
+
+    def get_browser_runtime_info(self, user_id: int) -> dict[str, object]:
+        """Возвращает проверенные сведения о процессе браузера пользователя."""
+        if user_id not in self._instances:
+            raise RuntimeError("Браузер пользователя еще не запущен")
+
+        return self._instances[user_id].get_runtime_info()
+
+    async def open_diagnostic_page(
+        self,
+        url: str,
+        user_id: int,
+        apply_stealth: bool,
+    ) -> tuple[Page, Response | None]:
+        """Выполняет единственный безопасно логируемый диагностический переход."""
+        instance = self._get_instance(user_id)
+        return await instance.open_diagnostic_page(url, apply_stealth)
 
     async def get_cart_page(
         self,

@@ -12,3 +12,4 @@ user_data
 bot_database.db
 logs
 debug_data
+.monitor_price_bot.lock
