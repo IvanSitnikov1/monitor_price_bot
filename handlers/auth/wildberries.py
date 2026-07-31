@@ -47,10 +47,16 @@ async def approve_wildberries_authorization(callback: types.CallbackQuery, state
         f"Телефон: {request['phone']}"
     )
 
+    browser_manager = None
+    authorization_started = False
     try:
         task_queue = getattr(callback.bot, "task_queue", None)
         if not task_queue:
             raise RuntimeError("Очередь задач недоступна")
+
+        browser_manager = task_queue.browser_manager
+        await browser_manager.begin_user_authorization(user_id)
+        authorization_started = True
 
         from scripts.authorize_wildberries_user import start_wildberries_authorization
 
@@ -58,7 +64,7 @@ async def approve_wildberries_authorization(callback: types.CallbackQuery, state
             user_id,
             request["phone"],
             callback.bot,
-            task_queue.browser_manager
+            browser_manager
         )
         await state.update_data(
             auth_user_id=user_id,
@@ -74,6 +80,12 @@ async def approve_wildberries_authorization(callback: types.CallbackQuery, state
                 InlineKeyboardButton(
                     text="✅ Подтвердить авторизацию Wildberries",
                     callback_data=f"auth_wb_confirm:{user_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отменить авторизацию",
+                    callback_data=f"auth_wildberries_cancel:{user_id}",
                 )
             ]
         ])
@@ -93,6 +105,15 @@ async def approve_wildberries_authorization(callback: types.CallbackQuery, state
         )
 
     except Exception as e:
+        if authorization_started and browser_manager:
+            try:
+                await browser_manager.cancel_user_authorization(user_id)
+            except Exception as cleanup_error:
+                logger.error(
+                    f"Не удалось освободить профиль Wildberries пользователя {user_id}: "
+                    f"{cleanup_error}",
+                    exc_info=True,
+                )
         logger.error(
             f"Ошибка авторизации Wildberries для пользователя {user_id}: {e}",
             exc_info=True
@@ -123,6 +144,42 @@ async def reject_wildberries_authorization(callback: types.CallbackQuery):
     )
 
     await update_auth_request_status(user_id, "rejected")
+    await callback.answer()
+
+
+@auth_wildberries_router.callback_query(F.data.startswith("auth_wildberries_cancel:"))
+async def cancel_wildberries_authorization(
+    callback: types.CallbackQuery,
+    state: FSMContext,
+):
+    """Отменяет ручную авторизацию Wildberries и освобождает профиль."""
+    user = callback.from_user
+    if user.id != config.ADMIN_USER_ID:
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    user_id = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    if (
+        data.get("auth_user_id") != user_id
+        or data.get("auth_marketplace") != "wildberries"
+    ):
+        await callback.answer(
+            "❌ Активная авторизация Wildberries не найдена",
+            show_alert=True,
+        )
+        return
+
+    auth_context = data.get("auth_context") or {}
+    browser_manager = auth_context.get("browser_manager")
+    if browser_manager:
+        await browser_manager.cancel_user_authorization(user_id)
+
+    await state.clear()
+    await callback.message.edit_text(
+        f"❌ Авторизация Wildberries пользователя {user_id} отменена.\n"
+        "Профиль браузера освобождён."
+    )
     await callback.answer()
 
 
@@ -170,6 +227,12 @@ async def process_admin_wildberries_code(message: types.Message, state: FSMConte
                 text="✅ Подтвердить авторизацию Wildberries",
                 callback_data=f"auth_wb_confirm:{auth_user_id}"
             )
+        ],
+        [
+            InlineKeyboardButton(
+                text="❌ Отменить авторизацию",
+                callback_data=f"auth_wildberries_cancel:{auth_user_id}",
+            )
         ]
     ])
     await message.answer(
@@ -207,8 +270,10 @@ async def confirm_wildberries_authorization(callback: types.CallbackQuery, state
         browser_manager = auth_context.get("browser_manager")
 
         if browser_manager:
-            await browser_manager.close_user_browser(user_id)
-            logger.info(f"Браузер Wildberries для пользователя {user_id} закрыт")
+            await browser_manager.finish_user_authorization(user_id)
+            logger.info(
+                f"Браузер Wildberries для пользователя {user_id} закрыт после авторизации"
+            )
 
         await save_marketplace_authorization(user_id, Marketplace.WILDBERRIES)
         await update_auth_request_status(user_id, "approved")

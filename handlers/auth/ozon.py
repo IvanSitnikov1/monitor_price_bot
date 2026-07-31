@@ -39,10 +39,16 @@ async def approve_authorization(callback: types.CallbackQuery, state: FSMContext
         f"Телефон: {request['phone']}"
     )
 
+    browser_manager = None
+    authorization_started = False
     try:
         task_queue = getattr(callback.bot, "task_queue", None)
         if not task_queue:
             raise RuntimeError("Очередь задач недоступна")
+
+        browser_manager = task_queue.browser_manager
+        await browser_manager.begin_user_authorization(user_id)
+        authorization_started = True
 
         from scripts.authorize_user import authorize_user
 
@@ -50,7 +56,7 @@ async def approve_authorization(callback: types.CallbackQuery, state: FSMContext
             user_id,
             request["phone"],
             callback.bot,
-            task_queue.browser_manager
+            browser_manager
         )
 
         await state.update_data(
@@ -61,12 +67,30 @@ async def approve_authorization(callback: types.CallbackQuery, state: FSMContext
         )
         await state.set_state(AuthorizationInProgress.waiting_for_qr_link)
 
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="❌ Отменить авторизацию",
+                    callback_data=f"auth_ozon_cancel:{user_id}",
+                )
+            ]
+        ])
         await callback.message.edit_text(
             f"✅ Браузер открыт для пользователя {user_id}\n\n"
-            f"Теперь отсканируйте QR-код и отправьте мне ссылку из него."
+            f"Теперь отсканируйте QR-код и отправьте мне ссылку из него.",
+            reply_markup=keyboard,
         )
 
     except Exception as e:
+        if authorization_started and browser_manager:
+            try:
+                await browser_manager.cancel_user_authorization(user_id)
+            except Exception as cleanup_error:
+                logger.error(
+                    f"Не удалось освободить профиль Ozon пользователя {user_id}: "
+                    f"{cleanup_error}",
+                    exc_info=True,
+                )
         logger.error(f"Ошибка авторизации Ozon для пользователя {user_id}: {e}", exc_info=True)
         await callback.message.edit_text(
             f"❌ Ошибка при открытии браузера: {str(e)}"
@@ -134,6 +158,12 @@ async def process_qr_link(message: types.Message, state: FSMContext):
                     text="✅ Подтвердить авторизацию",
                     callback_data=f"auth_confirm:{auth_user_id}"
                 )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отменить авторизацию",
+                    callback_data=f"auth_ozon_cancel:{auth_user_id}",
+                )
             ]
         ])
 
@@ -150,6 +180,36 @@ async def process_qr_link(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Ошибка при отправке ссылки пользователю {auth_user_id}: {e}", exc_info=True)
         await message.answer(f"❌ Ошибка при отправке ссылки: {str(e)}")
+
+
+@auth_ozon_router.callback_query(F.data.startswith("auth_ozon_cancel:"))
+async def cancel_ozon_authorization(callback: types.CallbackQuery, state: FSMContext):
+    """Отменяет ручную авторизацию Ozon и освобождает профиль."""
+    user = callback.from_user
+    if user.id != config.ADMIN_USER_ID:
+        await callback.answer("❌ Доступ запрещён", show_alert=True)
+        return
+
+    user_id = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    if (
+        data.get("auth_user_id") != user_id
+        or data.get("auth_marketplace") != "ozon"
+    ):
+        await callback.answer("❌ Активная авторизация Ozon не найдена", show_alert=True)
+        return
+
+    auth_context = data.get("auth_context") or {}
+    browser_manager = auth_context.get("browser_manager")
+    if browser_manager:
+        await browser_manager.cancel_user_authorization(user_id)
+
+    await state.clear()
+    await callback.message.edit_text(
+        f"❌ Авторизация Ozon пользователя {user_id} отменена.\n"
+        "Профиль браузера освобождён."
+    )
+    await callback.answer()
 
 
 @auth_ozon_router.callback_query(F.data.startswith("auth_confirm:"))
@@ -176,8 +236,8 @@ async def confirm_authorization(callback: types.CallbackQuery, state: FSMContext
         browser_manager = auth_context.get("browser_manager")
 
         if browser_manager:
-            await browser_manager.close_user_browser(user_id)
-            logger.info(f"Браузер Ozon для пользователя {user_id} закрыт")
+            await browser_manager.finish_user_authorization(user_id)
+            logger.info(f"Браузер Ozon для пользователя {user_id} закрыт после авторизации")
 
         await save_marketplace_authorization(user_id, Marketplace.OZON)
         await update_auth_request_status(user_id, "approved")

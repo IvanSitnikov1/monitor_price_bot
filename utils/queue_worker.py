@@ -17,7 +17,7 @@ from utils.scraper import (
     scrape_wildberries_cart,
 )
 from core.database import mark_product_not_in_cart, mark_product_in_cart
-from utils.browser_manager import BrowserManager
+from utils.browser_manager import BrowserAuthorizationInProgress, BrowserManager
 from core.models import Marketplace
 from core.database import (
     add_product,
@@ -370,6 +370,15 @@ class TaskQueue:
                     await asyncio.sleep(1)
                     continue
 
+                if user_id and self.browser_manager.is_authorization_in_progress(user_id):
+                    await self._requeue_task(priority, task)
+                    logger.info(
+                        f"Задача отложена до завершения авторизации пользователя {user_id}: "
+                        f"{task['type']}"
+                    )
+                    await asyncio.sleep(1)
+                    continue
+
                 logger.info(
                     f"Обработка задачи: {task['type']}, "
                     f"user_id={user_id}, "
@@ -383,6 +392,10 @@ class TaskQueue:
                 logger.info(f"Задержка перед следующей задачей: {delay:.2f} сек")
                 await asyncio.sleep(delay)
 
+            except BrowserAuthorizationInProgress:
+                await self._requeue_task(priority, task)
+                await asyncio.sleep(1)
+                continue
             except asyncio.TimeoutError:
                 # Очередь пуста, ждем новых задач
                 await asyncio.sleep(1)
@@ -396,23 +409,14 @@ class TaskQueue:
         task_type = task["type"]
 
         try:
-            # Для добавления корзины используем отдельную логику
-            if task_type == "add_cart":
-                await self._handle_add_cart(task)
-                return
-
-            # Для обновления корзины используем отдельную логику
-            if task_type == "update_cart":
-                await self._handle_update_cart(task)
-                return
-
-            if task_type == "add_product":
-                await self._handle_add_avito_product(task)
-                return
-
-            if task_type == "update_product":
-                await self._handle_update_avito_product(task)
-                return
+            user_id = task.get("user_id")
+            if user_id:
+                async with self.browser_manager.user_browser_operation(user_id):
+                    await self._process_task_body(task)
+            else:
+                await self._process_task_body(task)
+        except BrowserAuthorizationInProgress:
+            raise
 
         except Exception as e:
             logger.error(f"Ошибка при обработке задачи {task_type}: {e}", exc_info=True)
@@ -425,6 +429,31 @@ class TaskQueue:
                     )
                 except Exception as send_error:
                     logger.error(f"Не удалось отправить сообщение пользователю: {send_error}")
+
+    async def _process_task_body(self, task: dict) -> None:
+        """Вызывает обработчик задачи внутри защищенного профиля пользователя."""
+        task_type = task["type"]
+
+        if task_type == "add_cart":
+            await self._handle_add_cart(task)
+            return
+
+        if task_type == "update_cart":
+            await self._handle_update_cart(task)
+            return
+
+        if task_type == "add_product":
+            await self._handle_add_avito_product(task)
+            return
+
+        if task_type == "update_product":
+            await self._handle_update_avito_product(task)
+            return
+
+    async def _requeue_task(self, priority: int, task: dict) -> None:
+        """Возвращает задачу в очередь без потери исходных параметров."""
+        self.counter += 1
+        await self.queue.put((priority, self.counter, task))
 
     async def _scrape_avito_with_retries(self, task: dict):
         """Парсит объявление Avito с повторными попытками."""

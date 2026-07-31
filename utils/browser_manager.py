@@ -4,6 +4,7 @@ import signal
 import socket
 import subprocess
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Response
@@ -18,6 +19,10 @@ class DiagnosticNavigationError(RuntimeError):
 
 class BrowserIdentityError(RuntimeError):
     """Ошибка проверки профиля, процесса или CDP-порта Chromium."""
+
+
+class BrowserAuthorizationInProgress(RuntimeError):
+    """Профиль пользователя временно занят ручной авторизацией."""
 
 
 class BrowserInstance:
@@ -808,7 +813,70 @@ class BrowserManager:
         self.diagnostic_mode = diagnostic_mode
         self.refuse_existing_profiles = refuse_existing_profiles
         self._instances: dict[int, BrowserInstance] = {}
+        self._user_locks: dict[int, asyncio.Lock] = {}
+        self._authorization_users: set[int] = set()
         self._port_counter = 0
+
+    def _get_user_lock(self, user_id: int) -> asyncio.Lock:
+        """Возвращает асинхронную блокировку операций с профилем пользователя."""
+        if user_id not in self._user_locks:
+            self._user_locks[user_id] = asyncio.Lock()
+
+        return self._user_locks[user_id]
+
+    def is_authorization_in_progress(self, user_id: int) -> bool:
+        """Проверяет, зарезервирован ли профиль пользователя под авторизацию."""
+        return user_id in self._authorization_users
+
+    @asynccontextmanager
+    async def user_browser_operation(self, user_id: int):
+        """Синхронизирует одну задачу браузера с авторизацией пользователя."""
+        lock = self._get_user_lock(user_id)
+        await lock.acquire()
+        try:
+            if user_id in self._authorization_users:
+                raise BrowserAuthorizationInProgress(
+                    f"Профиль пользователя {user_id} занят авторизацией"
+                )
+
+            yield
+        finally:
+            lock.release()
+
+    async def begin_user_authorization(self, user_id: int) -> None:
+        """Резервирует профиль и закрывает старый Chromium перед авторизацией."""
+        lock = self._get_user_lock(user_id)
+        async with lock:
+            if user_id in self._authorization_users:
+                raise BrowserAuthorizationInProgress(
+                    f"Авторизация пользователя {user_id} уже выполняется"
+                )
+
+            self._authorization_users.add(user_id)
+            try:
+                await self._close_user_browser_unlocked(user_id)
+                logger.info(
+                    f"Профиль пользователя {user_id} освобождён перед авторизацией"
+                )
+            except BaseException:
+                self._authorization_users.discard(user_id)
+                raise
+
+    async def finish_user_authorization(self, user_id: int) -> None:
+        """Закрывает браузер после входа и освобождает профиль для очереди."""
+        lock = self._get_user_lock(user_id)
+        async with lock:
+            try:
+                await self._close_user_browser_unlocked(user_id)
+                logger.info(
+                    f"Браузер пользователя {user_id} закрыт после авторизации"
+                )
+            finally:
+                self._authorization_users.discard(user_id)
+
+    async def cancel_user_authorization(self, user_id: int) -> None:
+        """Отменяет авторизацию, закрывает браузер и освобождает профиль."""
+        await self.finish_user_authorization(user_id)
 
     def _get_next_port(self) -> int:
         """Возвращает свободный localhost-порт для CDP."""
@@ -896,6 +964,12 @@ class BrowserManager:
         Args:
             user_id: ID пользователя
         """
+        lock = self._get_user_lock(user_id)
+        async with lock:
+            await self._close_user_browser_unlocked(user_id)
+
+    async def _close_user_browser_unlocked(self, user_id: int) -> None:
+        """Закрывает браузер без повторного захвата блокировки пользователя."""
         instance = self._instances.pop(user_id, None)
         if not instance:
             if self.diagnostic_mode:
@@ -920,7 +994,14 @@ class BrowserManager:
 
     async def close_marketplace_pages(self, marketplace: str):
         """Закрывает вкладки маркетплейса во всех активных браузерах бота."""
-        for instance in list(self._instances.values()):
+        for user_id, instance in list(self._instances.items()):
+            if user_id in self._authorization_users:
+                logger.info(
+                    f"Вкладка {marketplace} пользователя {user_id} не закрыта: "
+                    "идёт ручная авторизация"
+                )
+                continue
+
             await instance.close_marketplace_page(marketplace)
 
     async def close_all(self):
