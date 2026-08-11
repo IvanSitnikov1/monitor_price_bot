@@ -643,9 +643,17 @@ async def _scrape_ozon_cart(
 
     while True:
         try:
-            # Ищем все блоки товаров (div.checkout_s6.checkout_s8)
-            product_blocks = page.locator('div.checkout_s6.checkout_s8')
+            # Сначала ищем позиции в новой разметке расшаренной корзины Ozon.
+            product_blocks = page.locator(
+                '[data-widget="cartSplit"] > div.checkout_u3.checkout_u5'
+            )
             count = await product_blocks.count()
+
+            if count == 0:
+                # Сохраняем поддержку прежней разметки корзины.
+                product_blocks = page.locator('div.checkout_s6.checkout_s8')
+                count = await product_blocks.count()
+
             logger.info(f"Найдено блоков товаров: {count}")
 
             for i in range(count):
