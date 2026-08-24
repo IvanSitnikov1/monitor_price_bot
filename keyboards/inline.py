@@ -62,6 +62,13 @@ def get_products_keyboard(
     return builder.as_markup()
 
 
+def get_cart_history_keyboard() -> InlineKeyboardMarkup:
+    """Создает кнопку для просмотра истории ссылок на корзины."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="История", callback_data="cart_history")
+    return builder.as_markup()
+
+
 def get_product_detail_keyboard(product_id: int) -> InlineKeyboardMarkup:
     """Создает инлайн-клавиатуру для детального просмотра товара."""
     builder = InlineKeyboardBuilder()

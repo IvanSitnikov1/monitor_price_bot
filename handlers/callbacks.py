@@ -1,5 +1,6 @@
 import csv
 from datetime import datetime
+from html import escape
 from io import StringIO
 from pathlib import Path
 
@@ -18,12 +19,14 @@ from core.database import (
     get_price_changes,
     delete_product,
     get_price_history,
+    get_user_cart_history,
 )
 from loggers import logger
 
 
 callbacks_router = Router()
 HISTORY_MESSAGE_LIMIT = 3900
+CART_HISTORY_MESSAGE_LIMIT = 3900
 
 
 def _format_price_history(history: list[dict]) -> list[str]:
@@ -59,6 +62,45 @@ def _build_price_history_csv(history: list[dict]) -> bytes:
     return csv_file.getvalue().encode("utf-8-sig")
 
 
+def _format_cart_history(history: list[dict]) -> list[str]:
+    """Формирует сообщения с единым списком ссылок на корзины."""
+    header = "🗂 <b>История корзин</b>:\n\n"
+    continuation_header = "🗂 <b>История корзин (продолжение)</b>:\n\n"
+    messages: list[str] = []
+    current_message = header
+
+    for entry in history:
+        url = str(entry["cart_url"])
+        safe_url = escape(url, quote=True)
+
+        match entry["marketplace"]:
+            case "ozon":
+                marketplace_name = "Ozon"
+            case "wildberries":
+                marketplace_name = "Wildberries"
+            case _:
+                marketplace_name = str(entry["marketplace"])
+
+        line = (
+            f"• {marketplace_name}: "
+            f'<a href="{safe_url}">{escape(url)}</a>\n'
+        )
+
+        if (
+            len(current_message) + len(line) > CART_HISTORY_MESSAGE_LIMIT
+            and current_message != header
+        ):
+            messages.append(current_message.rstrip())
+            current_message = continuation_header
+
+        current_message += line
+
+    if current_message != header:
+        messages.append(current_message.rstrip())
+
+    return messages
+
+
 async def _show_updated_products_after_delete(
     message: types.Message,
     text: str,
@@ -74,6 +116,26 @@ async def _show_updated_products_after_delete(
         await message.delete()
     except TelegramBadRequest as e:
         logger.warning(f"Не удалось удалить старую карточку товара: {e}")
+
+
+@callbacks_router.callback_query(F.data == "cart_history")
+async def show_cart_history(callback: types.CallbackQuery):
+    """Показывает пользователю общую историю ссылок на корзины."""
+    user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} запросил историю корзин")
+
+    history = await get_user_cart_history(user_id)
+    if not history:
+        await callback.answer("История корзин пуста", show_alert=True)
+        return
+
+    await callback.answer()
+    for text in _format_cart_history(history):
+        await callback.message.answer(
+            text,
+            parse_mode="HTML",
+            link_preview_options=types.LinkPreviewOptions(is_disabled=True),
+        )
 
 
 # Обработчик нажатия на товар в списке

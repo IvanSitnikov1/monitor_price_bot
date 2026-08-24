@@ -43,6 +43,46 @@ async def setup_database():
         await _add_column_if_missing(db, "users", "wildberries_cart_url TEXT")
 
         await db.execute("""
+            CREATE TABLE IF NOT EXISTS cart_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                marketplace TEXT NOT NULL,
+                cart_url TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                UNIQUE (user_id, marketplace, cart_url),
+                FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_cart_history_user_marketplace_date
+            ON cart_history (user_id, marketplace, added_at DESC, id DESC)
+        """)
+
+        migration_date = datetime.now().isoformat()
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO cart_history (
+                user_id, marketplace, cart_url, added_at
+            )
+            SELECT user_id, ?, ozon_cart_url, ?
+            FROM users
+            WHERE ozon_cart_url IS NOT NULL AND ozon_cart_url != ''
+            """,
+            (Marketplace.OZON.value, migration_date)
+        )
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO cart_history (
+                user_id, marketplace, cart_url, added_at
+            )
+            SELECT user_id, ?, wildberries_cart_url, ?
+            FROM users
+            WHERE wildberries_cart_url IS NOT NULL AND wildberries_cart_url != ''
+            """,
+            (Marketplace.WILDBERRIES.value, migration_date)
+        )
+
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -1143,11 +1183,41 @@ async def save_user_cart(
         marketplace: Маркетплейс корзины
     """
     cart_column = _get_cart_column(marketplace)
+    marketplace_value = (
+        marketplace.value if isinstance(marketplace, Marketplace) else marketplace
+    )
+    date_now = datetime.now().isoformat()
 
     async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
         await db.execute(
             f"UPDATE users SET {cart_column} = ? WHERE user_id = ?",
             (cart_url, user_id)
+        )
+
+        await db.execute(
+            """
+            INSERT INTO cart_history (user_id, marketplace, cart_url, added_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id, marketplace, cart_url) DO UPDATE SET
+                added_at = excluded.added_at
+            """,
+            (user_id, marketplace_value, cart_url, date_now)
+        )
+
+        await db.execute(
+            """
+            DELETE FROM cart_history
+            WHERE user_id = ? AND marketplace = ?
+              AND id NOT IN (
+                  SELECT id
+                  FROM cart_history
+                  WHERE user_id = ? AND marketplace = ?
+                  ORDER BY added_at DESC, id DESC
+                  LIMIT 5
+              )
+            """,
+            (user_id, marketplace_value, user_id, marketplace_value)
         )
 
         await db.commit()
@@ -1177,6 +1247,28 @@ async def get_user_cart(
 
         result = await cursor.fetchone()
         return result[0] if result and result[0] else None
+
+
+async def get_user_cart_history(user_id: int) -> list[dict]:
+    """Возвращает общий список последних ссылок на корзины пользователя."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT marketplace, cart_url, added_at
+            FROM cart_history
+            WHERE user_id = ?
+              AND marketplace IN (?, ?)
+            ORDER BY added_at DESC, id DESC
+            """,
+            (
+                user_id,
+                Marketplace.OZON.value,
+                Marketplace.WILDBERRIES.value,
+            )
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
 
 
 async def get_all_user_carts() -> list[dict]:

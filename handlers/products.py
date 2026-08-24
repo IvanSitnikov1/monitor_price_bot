@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse, urlunparse
 from aiogram import F, types, Router
 from aiogram.fsm.context import FSMContext
 
-from keyboards.inline import get_products_keyboard
+from keyboards.inline import get_cart_history_keyboard, get_products_keyboard
 from utils.states import AddCart
 from core.database import get_all_products, register_user
 from core.models import Marketplace
@@ -78,7 +78,8 @@ async def add_cart(message: types.Message, state: FSMContext):
         "<code>https://www.wildberries.ru/basket?shareId=...</code>\n"
         "<code>https://www.avito.ru/...</code>",
         parse_mode="HTML",
-        link_preview_options=types.LinkPreviewOptions(is_disabled=True)
+        link_preview_options=types.LinkPreviewOptions(is_disabled=True),
+        reply_markup=get_cart_history_keyboard()
     )
     await state.set_state(AddCart.waiting_for_link)
 
