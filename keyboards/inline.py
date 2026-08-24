@@ -69,9 +69,63 @@ def get_cart_history_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_product_detail_keyboard(product_id: int) -> InlineKeyboardMarkup:
+def get_notification_settings_keyboard(settings: dict) -> InlineKeyboardMarkup:
+    """Создает меню режимов уведомлений с текущими статусами."""
+    builder = InlineKeyboardBuilder()
+    modes = [
+        ("Стандарт", "standard"),
+        ("Границы снижения", "drop_bounds"),
+        ("Целевая цена", "target_price"),
+    ]
+
+    for title, mode in modes:
+        status = "✅" if settings.get(f"{mode}_enabled") else "❌"
+        builder.button(
+            text=f"{status} {title}",
+            callback_data=f"settings:mode:{mode}"
+        )
+
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def get_notification_mode_keyboard(
+    mode: str,
+    settings: dict
+) -> InlineKeyboardMarkup:
+    """Создает клавиатуру выбранного режима уведомлений."""
+    builder = InlineKeyboardBuilder()
+    enabled = bool(settings.get(f"{mode}_enabled"))
+    toggle_text = "☑️ Выключить" if enabled else "⬜ Включить"
+    builder.button(text=toggle_text, callback_data=f"settings:toggle:{mode}")
+
+    if mode == "drop_bounds":
+        builder.button(
+            text="Процент",
+            callback_data="settings:threshold:percent"
+        )
+        builder.button(
+            text="Сумма",
+            callback_data="settings:threshold:amount"
+        )
+
+    builder.button(text="Назад к настройкам", callback_data="settings:menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def get_product_detail_keyboard(
+    product_id: int,
+    target_price_enabled: bool = False,
+    target_price: int | None = None
+) -> InlineKeyboardMarkup:
     """Создает инлайн-клавиатуру для детального просмотра товара."""
     builder = InlineKeyboardBuilder()
+    if target_price_enabled:
+        target_text = "🎯 Целевая цена"
+        if target_price is not None:
+            target_text += f": {target_price} ₽"
+        builder.button(text=target_text, callback_data=f"target_price:{product_id}")
     builder.button(text="📊 История цен", callback_data=f"history:{product_id}")
     builder.button(text="🗑 Удалить", callback_data=f"delete:{product_id}")
     return builder.as_markup()

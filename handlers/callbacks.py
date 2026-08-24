@@ -20,6 +20,7 @@ from core.database import (
     delete_product,
     get_price_history,
     get_user_cart_history,
+    get_notification_settings,
 )
 from loggers import logger
 
@@ -185,7 +186,12 @@ async def show_product_details(callback: types.CallbackQuery):
     if product.get("url"):
         text += f"\n\n🔗 Ссылка на товар:\n{product['url']}"
 
-    reply_markup = get_product_detail_keyboard(product_id)
+    notification_settings = await get_notification_settings(user.id)
+    reply_markup = get_product_detail_keyboard(
+        product_id,
+        target_price_enabled=bool(notification_settings.get("target_price_enabled")),
+        target_price=product.get("target_price"),
+    )
 
     image_path = product.get("image_path")
     if image_path:

@@ -10,6 +10,7 @@ from handlers import (
     products_router,
     admin_router,
     callbacks_router,
+    settings_router,
     auth_router
 )
 from core.database import setup_database
@@ -90,6 +91,7 @@ async def _run_bot():
     dp.include_router(products_router)
     dp.include_router(auth_router)
     dp.include_router(callbacks_router)
+    dp.include_router(settings_router)
     dp.include_router(common_router)  # Последний, т.к. содержит echo-обработчик
 
     # Запускаем опрос

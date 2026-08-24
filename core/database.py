@@ -1,6 +1,7 @@
 import aiosqlite
 import sqlite3
 from datetime import datetime, timedelta
+from math import isfinite
 from pathlib import Path
 
 from core.models import Marketplace
@@ -41,6 +42,33 @@ async def setup_database():
         """)
 
         await _add_column_if_missing(db, "users", "wildberries_cart_url TEXT")
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS notification_settings (
+                user_id INTEGER PRIMARY KEY,
+                standard_enabled INTEGER NOT NULL DEFAULT 1,
+                drop_bounds_enabled INTEGER NOT NULL DEFAULT 0,
+                drop_threshold_type TEXT,
+                drop_threshold_value REAL,
+                target_price_enabled INTEGER NOT NULL DEFAULT 0,
+                date_created TEXT NOT NULL,
+                date_updated TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+            )
+        """)
+
+        date_now = datetime.now().isoformat()
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO notification_settings (
+                user_id, standard_enabled, drop_bounds_enabled,
+                target_price_enabled, date_created, date_updated
+            )
+            SELECT user_id, 1, 0, 0, ?, ?
+            FROM users
+            """,
+            (date_now, date_now)
+        )
 
         await db.execute("""
             CREATE TABLE IF NOT EXISTS cart_history (
@@ -92,6 +120,8 @@ async def setup_database():
                 image_path TEXT,
                 variant_text TEXT,
                 cart_item_key TEXT,
+                target_price INTEGER,
+                target_price_reached INTEGER NOT NULL DEFAULT 0,
                 marketplace TEXT NOT NULL DEFAULT 'ozon',
                 in_cart INTEGER NOT NULL DEFAULT 1,
                 date_added TEXT NOT NULL,
@@ -105,6 +135,12 @@ async def setup_database():
         await _add_column_if_missing(db, "products", "url TEXT")
         await _add_column_if_missing(db, "products", "variant_text TEXT")
         await _add_column_if_missing(db, "products", "cart_item_key TEXT")
+        await _add_column_if_missing(db, "products", "target_price INTEGER")
+        await _add_column_if_missing(
+            db,
+            "products",
+            "target_price_reached INTEGER NOT NULL DEFAULT 0"
+        )
 
         await db.execute("""
             CREATE TABLE IF NOT EXISTS price_history (
@@ -173,7 +209,6 @@ async def setup_database():
             )
         """)
 
-        date_now = datetime.now().isoformat()
         await db.execute("""
             INSERT OR IGNORE INTO subscriptions (
                 user_id, status, created_at, updated_at
@@ -280,6 +315,8 @@ async def get_all_products(
                 p.image_path,
                 p.variant_text,
                 p.cart_item_key,
+                p.target_price,
+                p.target_price_reached,
                 p.marketplace,
                 p.in_cart,
                 ph.price as current_price
@@ -334,6 +371,8 @@ async def get_product_details(product_id: int, user_id: int) -> dict | None:
                 p.image_path,
                 p.variant_text,
                 p.cart_item_key,
+                p.target_price,
+                p.target_price_reached,
                 p.in_cart,
                 p.date_added,
                 (SELECT price FROM price_history
@@ -382,7 +421,7 @@ async def get_all_products_for_update(marketplace: str | None = None) -> list[di
 
         query = """
             SELECT id, user_id, name, url, image_url, image_path, variant_text,
-                   cart_item_key, marketplace
+                   cart_item_key, target_price, target_price_reached, marketplace
             FROM products
             WHERE in_cart = 1 AND url IS NOT NULL
         """
@@ -414,7 +453,7 @@ async def get_product_by_url(
         cursor = await db.execute(
             """
             SELECT id, name, url, image_url, image_path, variant_text, cart_item_key,
-                   marketplace, in_cart
+                   target_price, target_price_reached, marketplace, in_cart
             FROM products
             WHERE user_id = ? AND url = ? AND marketplace = ?
             """,
@@ -582,6 +621,77 @@ async def update_product_cart_identity(
         await db.commit()
 
 
+async def set_product_target_price(
+    product_id: int,
+    user_id: int,
+    target_price: int | None
+) -> bool:
+    """Устанавливает или очищает целевую цену товара владельца."""
+    if target_price is not None and target_price <= 0:
+        raise ValueError("Целевая цена должна быть положительным числом")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            UPDATE products
+            SET target_price = ?, target_price_reached = 0
+            WHERE id = ? AND user_id = ?
+            """,
+            (target_price, product_id, user_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def claim_target_price_notification(
+    product_id: int,
+    price: int,
+    notifications_enabled: bool
+) -> int | None:
+    """Атомарно отмечает новое достижение целевой цены и возвращает цель."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT target_price, target_price_reached
+            FROM products
+            WHERE id = ?
+            """,
+            (product_id,)
+        )
+        row = await cursor.fetchone()
+        if not row or row[0] is None:
+            return None
+
+        target_price, target_price_reached = row
+        if price > target_price:
+            if target_price_reached:
+                await db.execute(
+                    """
+                    UPDATE products
+                    SET target_price_reached = 0
+                    WHERE id = ? AND target_price = ?
+                    """,
+                    (product_id, target_price)
+                )
+                await db.commit()
+            return None
+
+        if not notifications_enabled or target_price_reached:
+            return None
+
+        cursor = await db.execute(
+            """
+            UPDATE products
+            SET target_price_reached = 1
+            WHERE id = ? AND target_price = ? AND target_price_reached = 0
+            """,
+            (product_id, target_price)
+        )
+        await db.commit()
+
+        return target_price if cursor.rowcount > 0 else None
+
+
 async def mark_product_not_in_cart(product_id: int) -> bool:
     """
     Помечает товар как удалённый из корзины (но сохраняет в БД с историей).
@@ -645,7 +755,7 @@ async def get_product_by_name(user_id: int, name: str) -> dict | None:
         cursor = await db.execute(
             """
             SELECT id, name, url, image_url, image_path, variant_text, cart_item_key,
-                   marketplace, in_cart
+                   target_price, target_price_reached, marketplace, in_cart
             FROM products
             WHERE user_id = ? AND name = ?
             """,
@@ -774,6 +884,127 @@ async def get_all_user_ids() -> list[int]:
 
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
+
+
+async def get_notification_settings(user_id: int) -> dict:
+    """Получает настройки уведомлений пользователя и создает значения по умолчанию."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
+        db.row_factory = aiosqlite.Row
+        date_now = datetime.now().isoformat()
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO notification_settings (
+                user_id, standard_enabled, drop_bounds_enabled,
+                target_price_enabled, date_created, date_updated
+            )
+            VALUES (?, 1, 0, 0, ?, ?)
+            """,
+            (user_id, date_now, date_now)
+        )
+        await db.commit()
+
+        cursor = await db.execute(
+            """
+            SELECT user_id, standard_enabled, drop_bounds_enabled,
+                   drop_threshold_type, drop_threshold_value,
+                   target_price_enabled, date_created, date_updated
+            FROM notification_settings
+            WHERE user_id = ?
+            """,
+            (user_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else {}
+
+
+async def update_notification_mode(user_id: int, mode: str, enabled: bool) -> bool:
+    """Включает или выключает режим уведомлений пользователя."""
+    mode_columns = {
+        "standard": "standard_enabled",
+        "drop_bounds": "drop_bounds_enabled",
+        "target_price": "target_price_enabled",
+    }
+    column = mode_columns.get(mode)
+    if not column:
+        raise ValueError("Неизвестный режим уведомлений")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
+        date_now = datetime.now().isoformat()
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO notification_settings (
+                user_id, standard_enabled, drop_bounds_enabled,
+                target_price_enabled, date_created, date_updated
+            )
+            VALUES (?, 1, 0, 0, ?, ?)
+            """,
+            (user_id, date_now, date_now)
+        )
+        cursor = await db.execute(
+            f"""
+            UPDATE notification_settings
+            SET {column} = ?, date_updated = ?
+            WHERE user_id = ?
+            """,
+            (int(enabled), date_now, user_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def set_drop_threshold(
+    user_id: int,
+    threshold_type: str | None,
+    threshold_value: float | None
+) -> bool:
+    """Сохраняет или очищает процентный либо абсолютный порог снижения."""
+    if threshold_type not in (None, "percent", "amount"):
+        raise ValueError("Неизвестный тип порога снижения")
+
+    if threshold_value is not None and threshold_value == 0:
+        threshold_type = None
+        threshold_value = None
+
+    if threshold_value is not None and not isfinite(float(threshold_value)):
+        raise ValueError("Порог должен быть конечным числом")
+
+    if threshold_type == "percent" and (
+        threshold_value is None or threshold_value <= 0 or threshold_value > 100
+    ):
+        raise ValueError("Процентный порог должен быть больше 0 и не превышать 100")
+
+    if threshold_type == "amount" and (
+        threshold_value is None
+        or threshold_value <= 0
+        or not float(threshold_value).is_integer()
+    ):
+        raise ValueError("Порог суммы должен быть положительным целым числом")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
+        date_now = datetime.now().isoformat()
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO notification_settings (
+                user_id, standard_enabled, drop_bounds_enabled,
+                target_price_enabled, date_created, date_updated
+            )
+            VALUES (?, 1, 0, 0, ?, ?)
+            """,
+            (user_id, date_now, date_now)
+        )
+        cursor = await db.execute(
+            """
+            UPDATE notification_settings
+            SET drop_threshold_type = ?, drop_threshold_value = ?, date_updated = ?
+            WHERE user_id = ?
+            """,
+            (threshold_type, threshold_value, date_now, user_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def save_auth_request(user_id: int, phone: str, username: str | None):
@@ -976,6 +1207,14 @@ async def register_user(user_id: int, username: str | None, first_name: str | No
                 user_id, status, created_at, updated_at
             )
             VALUES (?, 'free', ?, ?)
+        """, (user_id, date_now, date_now))
+
+        await db.execute("""
+            INSERT OR IGNORE INTO notification_settings (
+                user_id, standard_enabled, drop_bounds_enabled,
+                target_price_enabled, date_created, date_updated
+            )
+            VALUES (?, 1, 0, 0, ?, ?)
         """, (user_id, date_now, date_now))
 
         await db.commit()

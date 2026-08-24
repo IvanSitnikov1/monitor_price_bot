@@ -9,6 +9,12 @@ class AddCart(StatesGroup):
     waiting_for_link = State()
 
 
+class NotificationSettings(StatesGroup):
+    waiting_for_drop_percent = State()
+    waiting_for_drop_amount = State()
+    waiting_for_target_price = State()
+
+
 class LoginState(StatesGroup):
     waiting_for_phone = State()
     waiting_for_wb_code = State()

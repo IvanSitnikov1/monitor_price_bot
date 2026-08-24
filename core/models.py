@@ -39,6 +39,11 @@ class Product(BaseModel):
         description="Стабильный ключ позиции корзины",
         examples=["ozon|шорты dlvaxty карго лето 2026|50 ru / 34 • хаки /1171-3/"]
     )
+    target_price: int | None = Field(
+        None,
+        description="Ожидаемая цена товара в рублях",
+        examples=[3500]
+    )
     marketplace: Marketplace = Field(
         description="Маркетплейс товара",
         examples=["ozon"]

@@ -8,6 +8,9 @@ main_kb = ReplyKeyboardMarkup(
             KeyboardButton(text="Список позиций"),
         ],
         [
+            KeyboardButton(text="Настройки"),
+        ],
+        [
             KeyboardButton(text="❓ Помощь"),
             KeyboardButton(text="🔐 Авторизация"),
         ]
@@ -28,6 +31,9 @@ admin_kb = ReplyKeyboardMarkup(
         ],
         [
             KeyboardButton(text="💳 Подписки"),
+        ],
+        [
+            KeyboardButton(text="Настройки"),
         ],
         [
             KeyboardButton(text="❓ Помощь"),

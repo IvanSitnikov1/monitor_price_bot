@@ -27,6 +27,8 @@ from core.database import (
     update_product_image_path,
     update_product_cart_identity,
     get_price_snapshot,
+    get_notification_settings,
+    claim_target_price_notification,
     get_all_products,
     get_product_by_url,
     has_marketplace_authorization,
@@ -215,6 +217,37 @@ def _format_product_title(product: dict) -> str:
         return f"{product['name']} ({variant_text})"
 
     return product["name"]
+
+
+def _should_notify_price_drop(
+    settings: dict,
+    previous_price: int | None,
+    new_price: int,
+) -> bool:
+    """Проверяет стандартный режим и порог уведомления о снижении цены."""
+    if not settings.get("standard_enabled", 1):
+        return False
+
+    if previous_price is None or new_price >= previous_price:
+        return False
+
+    if not settings.get("drop_bounds_enabled"):
+        return True
+
+    threshold_type = settings.get("drop_threshold_type")
+    threshold_value = settings.get("drop_threshold_value")
+    if not threshold_type or threshold_value is None:
+        return False
+
+    decrease_amount = previous_price - new_price
+    if threshold_type == "amount":
+        return decrease_amount >= float(threshold_value)
+
+    if threshold_type == "percent" and previous_price > 0:
+        decrease_percent = decrease_amount / previous_price * 100
+        return decrease_percent >= float(threshold_value)
+
+    return False
 
 
 async def _download_product_image(
@@ -544,6 +577,41 @@ class TaskQueue:
             f"✅ Объявление добавлено!\n\n📦 {product['name']}\n💰 {product['price']} ₽"
         )
 
+    async def _notify_target_price_if_reached(
+        self,
+        user_id: int,
+        product_id: int,
+        product_name: str,
+        price: int,
+        settings: dict,
+    ) -> None:
+        """Отправляет одно уведомление при достижении целевой цены."""
+        target_price = await claim_target_price_notification(
+            product_id,
+            price,
+            bool(settings.get("target_price_enabled")),
+        )
+        if target_price is None:
+            return
+
+        try:
+            await self.bot.send_message(
+                user_id,
+                "🎯 Достигнута целевая цена!\n\n"
+                f"📦 {product_name}\n"
+                f"💰 Текущая цена: {price} ₽\n"
+                f"🎯 Целевая цена: {target_price} ₽",
+            )
+            logger.info(
+                f"Уведомление о целевой цене отправлено пользователю {user_id}, "
+                f"товар {product_id}"
+            )
+        except Exception as error:
+            logger.error(
+                f"Не удалось отправить уведомление о целевой цене пользователю "
+                f"{user_id}: {error}"
+            )
+
     async def _handle_update_avito_product(self, task: dict):
         """Обновляет цену одного объявления Avito."""
         stored_product = await get_product_by_url(
@@ -593,6 +661,7 @@ class TaskQueue:
             return
 
         product_id = stored_product["id"]
+        settings = await get_notification_settings(task["user_id"])
 
         price_snapshot = await get_price_snapshot(product_id)
         previous_price = price_snapshot["previous_price"]
@@ -601,7 +670,15 @@ class TaskQueue:
             f"✅ Цена Avito обновлена для {product['name']}: {product['price']} ₽"
         )
 
-        if previous_price is not None and product["price"] < previous_price:
+        await self._notify_target_price_if_reached(
+            task["user_id"],
+            product_id,
+            product["name"],
+            product["price"],
+            settings,
+        )
+
+        if _should_notify_price_drop(settings, previous_price, product["price"]):
             min_price = min(
                 price_snapshot["min_price"] or product["price"],
                 product["price"]
@@ -1186,6 +1263,7 @@ class TaskQueue:
             marketplace=marketplace,
             in_cart_only=False
         )
+        notification_settings = await get_notification_settings(user_id)
 
         # Создаём индексы для поиска по стабильному ключу позиции корзины
         cart_item_keys = _assign_cart_item_keys(cart_products, marketplace)
@@ -1279,8 +1357,20 @@ class TaskQueue:
                 updated_count += 1
                 logger.info(f"✅ Цена обновлена для {product_name}: {new_price} ₽")
 
+                await self._notify_target_price_if_reached(
+                    user_id,
+                    product_id,
+                    _format_product_title(cart_product),
+                    new_price,
+                    notification_settings,
+                )
+
                 # Проверяем, упала ли цена ниже предыдущего замера
-                if previous_price is not None and new_price < previous_price:
+                if _should_notify_price_drop(
+                    notification_settings,
+                    previous_price,
+                    new_price,
+                ):
                     min_price = min(
                         price_snapshot["min_price"] or new_price,
                         new_price
