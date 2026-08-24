@@ -19,6 +19,7 @@ from utils.price_updater import update_all_prices
 from loggers import logger
 from utils.process_lock import ProcessLock, ProcessLockError
 from utils.queue_worker import TaskQueue
+from utils.reply_keyboard_sync import sync_reply_keyboards
 
 
 async def schedule_price_update_with_delay(task_queue):
@@ -84,6 +85,9 @@ async def _run_bot():
     # Удаляем вебхуки и пропускаем старые сообщения
     logger.info("Удаление вебхуков...")
     await bot.delete_webhook(drop_pending_updates=True)
+
+    logger.info("Проверка актуальности reply-клавиатур...")
+    await sync_reply_keyboards(bot)
 
     # Добавляем роутеры
     logger.info("Регистрация обработчиков...")

@@ -1,6 +1,9 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 
+REPLY_KEYBOARD_VERSION = "1"
+
+
 main_kb = ReplyKeyboardMarkup(
     keyboard=[
         [
@@ -42,3 +45,14 @@ admin_kb = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True,
 )
+
+
+def get_reply_keyboard_version(is_admin: bool) -> str:
+    """Возвращает версию клавиатуры с учетом роли пользователя."""
+    role = "admin" if is_admin else "user"
+    return f"{REPLY_KEYBOARD_VERSION}:{role}"
+
+
+def get_reply_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
+    """Возвращает пользовательскую или административную клавиатуру."""
+    return admin_kb if is_admin else main_kb

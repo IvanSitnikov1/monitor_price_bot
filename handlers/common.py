@@ -4,8 +4,12 @@ from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
 from config import config
-from keyboards.reply import main_kb, admin_kb
-from core.database import get_user_subscription_details, register_user
+from keyboards.reply import get_reply_keyboard, get_reply_keyboard_version
+from core.database import (
+    get_user_subscription_details,
+    mark_reply_keyboard_version,
+    register_user,
+)
 from loggers import logger
 
 
@@ -45,7 +49,8 @@ async def cmd_start(message: types.Message, state: FSMContext):
     await register_user(user.id, user.username, user.first_name)
     logger.info(f"Пользователь {user.id} зарегистрирован в системе")
 
-    keyboard = admin_kb if user.id == config.ADMIN_USER_ID else main_kb
+    is_admin = user.id == config.ADMIN_USER_ID
+    keyboard = get_reply_keyboard(is_admin)
 
     welcome_text = (
         f"👋 Привет, {user.first_name}!\n\n"
@@ -78,6 +83,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+    await mark_reply_keyboard_version(user.id, get_reply_keyboard_version(is_admin))
 
 
 # Обработчик команды /help и кнопки "❓ Помощь"
@@ -152,7 +158,8 @@ async def cmd_help(message: types.Message, state: FSMContext):
         "• Подробности — при авторизации\n\n"
 
         "⚠️ <b>Возможные проблемы:</b>\n"
-        "Возможно временное приостановление обновления цен, которое требует ручного вмешательства.\n"
+        "Возможно временное приостановление обновления цен, которое требует ручного "
+        "вмешательства.\n"
         "Администратор устранит проблему в ближайшее время.\n\n"
 
         "Если остались вопросы, пишите в ЛС - @Ivanches1"

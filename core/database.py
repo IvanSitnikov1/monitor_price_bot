@@ -37,11 +37,17 @@ async def setup_database():
                 first_name TEXT,
                 ozon_cart_url TEXT,
                 wildberries_cart_url TEXT,
+                reply_keyboard_version TEXT NOT NULL DEFAULT '',
                 date_registered TEXT NOT NULL
             )
         """)
 
         await _add_column_if_missing(db, "users", "wildberries_cart_url TEXT")
+        await _add_column_if_missing(
+            db,
+            "users",
+            "reply_keyboard_version TEXT NOT NULL DEFAULT ''"
+        )
 
         await db.execute("""
             CREATE TABLE IF NOT EXISTS notification_settings (
@@ -884,6 +890,36 @@ async def get_all_user_ids() -> list[int]:
 
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
+
+
+async def get_users_with_keyboard_versions() -> list[dict]:
+    """Получает зарегистрированных пользователей и версии их reply-клавиатур."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT user_id, reply_keyboard_version
+            FROM users
+            ORDER BY user_id
+            """
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def mark_reply_keyboard_version(user_id: int, version: str) -> bool:
+    """Сохраняет версию reply-клавиатуры после успешной отправки пользователю."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            UPDATE users
+            SET reply_keyboard_version = ?
+            WHERE user_id = ?
+            """,
+            (version, user_id)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def get_notification_settings(user_id: int) -> dict:
