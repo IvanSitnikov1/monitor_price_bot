@@ -1363,21 +1363,17 @@ class TaskQueue:
             f"причина={reason}"
         )
 
-        if host_level and marketplace:
+        is_host_mode = bool(host_level and marketplace)
+        if is_host_mode:
             maintenance_mode.enable_host(marketplace)
-            await self.browser_manager.close_marketplace_pages(marketplace)
         else:
             maintenance_mode.enable(user_id, marketplace)
-            if marketplace:
-                await self.browser_manager.close_user_marketplace_page(
-                    user_id,
-                    marketplace,
-                )
 
-        # Отправляем уведомление администратору
+        # Уведомляем администратора до очистки вкладок, чтобы ее ошибка не скрыла событие.
         try:
             marketplace_suffix = f"_{marketplace}" if marketplace else ""
-            if host_level and marketplace:
+            maintenance_level = "общий для хоста" if is_host_mode else "пользовательский"
+            if is_host_mode:
                 flag_instructions = (
                     "Общий флаг хоста: "
                     f"maintenance_flags/maintenance_host_{marketplace}.flag\n"
@@ -1390,14 +1386,44 @@ class TaskQueue:
                     f"maintenance_flags/maintenance_{user_id}{marketplace_suffix}.flag"
                 )
 
+            logger.info(
+                "Отправляем уведомление о maintenance mode администратору: "
+                f"admin_id={config.ADMIN_USER_ID}, user_id={user_id}, "
+                f"маркетплейс={marketplace}, причина={reason}"
+            )
             await self.bot.send_message(
                 config.ADMIN_USER_ID,
                 f"🚧 Активирован maintenance mode для пользователя {user_id}\n"
                 f"Маркетплейс: {marketplace or 'не определён'}\n"
+                f"Уровень: {maintenance_level}\n"
                 f"Причина: {reason}\n\n{flag_instructions}"
             )
+            logger.info(
+                "Уведомление о maintenance mode успешно отправлено администратору: "
+                f"admin_id={config.ADMIN_USER_ID}"
+            )
         except Exception as e:
-            logger.error(f"Не удалось отправить уведомление администратору: {e}")
+            logger.error(
+                "Не удалось отправить уведомление администратору: "
+                f"admin_id={config.ADMIN_USER_ID}, user_id={user_id}, "
+                f"маркетплейс={marketplace}, ошибка={e}",
+                exc_info=True,
+            )
+
+        try:
+            if is_host_mode:
+                await self.browser_manager.close_marketplace_pages(marketplace)
+            elif marketplace:
+                await self.browser_manager.close_user_marketplace_page(
+                    user_id,
+                    marketplace,
+                )
+        except Exception as e:
+            logger.error(
+                "Не удалось закрыть вкладки после включения maintenance mode: "
+                f"user_id={user_id}, маркетплейс={marketplace}, ошибка={e}",
+                exc_info=True,
+            )
 
     async def _save_queue(self):
         """Сохраняет текущую очередь на диск"""
