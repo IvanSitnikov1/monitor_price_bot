@@ -8,11 +8,10 @@ from datetime import datetime
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright_stealth import Stealth
 
+from core.models import Marketplace
+from core.parsing import ParsedProduct, ParseIssue, ParseIssueCode, ParseResult, ParseStatus
 from loggers import logger
 
-
-AVITO_CLOSED_MARKER = "avito_closed"
-AVITO_DELETED_MARKER = "avito_deleted"
 
 _COMMON_BLOCK_SELECTORS = (
     '[class*="captcha"]',
@@ -335,20 +334,6 @@ async def _check_wildberries_logged_out(page) -> bool:
         ),
         "Wildberries",
     )
-
-
-async def _report_authorization_lost(callback, marketplace: str) -> None:
-    """Передает сигнал о завершении сессии, не прерывая парсинг при ошибке."""
-    if not callback:
-        return
-
-    try:
-        await callback()
-    except Exception as e:
-        logger.error(
-            f"{marketplace}: ошибка обработки завершившейся авторизации: {e}",
-            exc_info=True,
-        )
 
 
 async def _check_bot_detection(page):
@@ -705,9 +690,7 @@ async def _scrape_ozon_cart(
     browser_manager,
     product_details_extractor=None,
     is_refresh: bool = False,
-    maintenance_callback=None,
-    authorization_lost_callback=None,
-) -> list[dict[str, str | None]] | dict[str, object] | str | None:
+) -> ParseResult:
     """
     Парсит корзину Ozon и извлекает список товаров.
 
@@ -717,153 +700,176 @@ async def _scrape_ozon_cart(
         browser_manager: Экземпляр BrowserManager для переиспользования браузера
         product_details_extractor: Функция для извлечения дополнительных данных товара
         is_refresh: Если True, обновляет существующую страницу вместо открытия новой
-        maintenance_callback: Callback для активации maintenance mode при блокировке Ozon
-        authorization_lost_callback: Callback при обнаружении завершившейся сессии Ozon
 
     Returns:
-        Список словарей с данными товаров,
-        строка "maintenance_required" при явной блокировке,
-        или None при других ошибках
+        Типизированный результат с позициями, статусом и причинами ошибок.
     """
-    logger.info(f"Начало парсинга корзины: {url}, user_id: {user_id}, is_refresh: {is_refresh}")
-
+    authorization_lost = False
     try:
-        if is_refresh:
-            page = await browser_manager.refresh_cart_page(user_id, marketplace="ozon")
-        else:
-            page = await browser_manager.get_cart_page(url, user_id, marketplace="ozon")
-    except Exception as e:
-        logger.error(f"Ошибка при работе с BrowserManager: {e}")
-        return None
+        logger.info(f"Начало парсинга корзины: {url}, user_id: {user_id}, is_refresh: {is_refresh}")
 
-    # Общая логика парсинга
-    await _human_delay()
-    await _human_like_behavior(page)
-
-    try:
-        await page.wait_for_load_state('networkidle', timeout=10000)
-    except PlaywrightTimeoutError:
-        logger.warning("Networkidle timeout - продолжаем парсинг")
-
-    # Сохраняем скриншот с указанием user_id и времени
-    Path(f"debug_data").absolute().mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    screenshot_path = f'debug_data/cart_user{user_id}_{timestamp}.png'
-    await page.screenshot(path=screenshot_path)
-    logger.info(f"Скриншот корзины сохранён: {screenshot_path}")
-
-    # Проверка явной блокировки
-    logger.info("Проверка явных признаков блокировки Ozon")
-    if await _check_ozon_block(page):
-        logger.error("Обнаружена блокировка Ozon, требуется общая пауза")
-        if maintenance_callback:
-            await maintenance_callback()
-        return "maintenance_required"
-
-    if await _check_ozon_logged_out(page):
-        await _report_authorization_lost(authorization_lost_callback, "Ozon")
-
-    # Парсинг товаров из корзины
-    logger.info("Начинаем извлечение товаров из корзины")
-    products = []
-    skipped_products_count = 0
-
-    while True:
         try:
-            # Сначала ищем позиции в новой разметке расшаренной корзины Ozon.
-            product_blocks = page.locator(
-                '[data-widget="cartSplit"] > div.checkout_u3.checkout_u5'
+            if is_refresh:
+                page = await browser_manager.refresh_cart_page(user_id, marketplace="ozon")
+            else:
+                page = await browser_manager.get_cart_page(url, user_id, marketplace="ozon")
+        except Exception as e:
+            logger.error(f"Ошибка при работе с BrowserManager: {e}")
+            return ParseResult.failure(
+                Marketplace.OZON, ParseIssueCode.BROWSER_ERROR,
+                'Не удалось открыть страницу', authorization_lost,
             )
-            count = await product_blocks.count()
 
-            if count == 0:
-                # Сохраняем поддержку прежней разметки корзины.
-                product_blocks = page.locator('div.checkout_s6.checkout_s8')
+        # Общая логика парсинга
+        await _human_delay()
+        await _human_like_behavior(page)
+
+        try:
+            await page.wait_for_load_state('networkidle', timeout=10000)
+        except PlaywrightTimeoutError:
+            logger.warning("Networkidle timeout - продолжаем парсинг")
+
+        # Сохраняем скриншот с указанием user_id и времени
+        Path(f"debug_data").absolute().mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        screenshot_path = f'debug_data/cart_user{user_id}_{timestamp}.png'
+        await page.screenshot(path=screenshot_path)
+        logger.info(f"Скриншот корзины сохранён: {screenshot_path}")
+
+        # Проверка явной блокировки
+        logger.info("Проверка явных признаков блокировки Ozon")
+        if await _check_ozon_block(page):
+            logger.error("Обнаружена блокировка Ozon, требуется общая пауза")
+            return ParseResult(marketplace=Marketplace.OZON, status=ParseStatus.BLOCKED)
+
+        authorization_lost = await _check_ozon_logged_out(page)
+
+        # Парсинг товаров из корзины
+        logger.info("Начинаем извлечение товаров из корзины")
+        products = []
+        skipped_products_count = 0
+        issues = []
+
+        while True:
+            try:
+                # Сначала ищем позиции в новой разметке расшаренной корзины Ozon.
+                product_blocks = page.locator(
+                    '[data-widget="cartSplit"] > div.checkout_u3.checkout_u5'
+                )
                 count = await product_blocks.count()
 
-            logger.info(f"Найдено блоков товаров: {count}")
+                if count == 0:
+                    # Сохраняем поддержку прежней разметки корзины.
+                    product_blocks = page.locator('div.checkout_s6.checkout_s8')
+                    count = await product_blocks.count()
 
-            for i in range(count):
-                block = product_blocks.nth(i)
+                logger.info(f"Найдено блоков товаров: {count}")
 
-                # Извлекаем название (span.tsCompact400Large)
-                try:
-                    name_element = block.locator('span.tsCompact400Large').first
-                    name = await name_element.text_content(timeout=3000)
-                    name = name.strip() if name else None
-                except Exception as e:
-                    logger.warning(f"Не удалось извлечь название товара {i + 1}: {e}")
-                    name = None
+                for i in range(count):
+                    block = product_blocks.nth(i)
 
-                price = await _extract_ozon_price_from_block(block, i)
-                if not price:
-                    logger.warning(f"Не удалось извлечь цену товара {i + 1}")
+                    # Извлекаем название (span.tsCompact400Large)
+                    try:
+                        name_element = block.locator('span.tsCompact400Large').first
+                        name = await name_element.text_content(timeout=3000)
+                        name = name.strip() if name else None
+                    except Exception as e:
+                        logger.warning(f"Не удалось извлечь название товара {i + 1}: {e}")
+                        name = None
 
-                if name and price:
-                    variant_text = await _extract_product_variant_from_block(block, i)
-                    product = {
-                        "name": name,
-                        "price": price,
-                        "variant_text": variant_text,
-                    }
-                    if product_details_extractor:
-                        product.update(await product_details_extractor(page, block, i))
+                    if name and await _is_ozon_product_unavailable(block, i):
+                        variant_text = await _extract_product_variant_from_block(block, i)
+                        products.append(ParsedProduct(
+                            name=name,
+                            price=None,
+                            variant_text=variant_text,
+                            unavailable=True,
+                        ))
+                        logger.info(f"Товар {i+1}: {name} - закончился")
+                        continue
 
-                    products.append(product)
-                    logger.info(
-                        f"Товар {i+1}: {name} - {price} - "
-                        f"{product.get('url')} - {product.get('image_url')}"
+                    price = await _extract_ozon_price_from_block(block, i)
+                    if not price:
+                        logger.warning(f"Не удалось извлечь цену товара {i + 1}")
+
+                    if name and price:
+                        variant_text = await _extract_product_variant_from_block(block, i)
+                        product = {
+                            "name": name,
+                            "price": price,
+                            "variant_text": variant_text,
+                        }
+                        if product_details_extractor:
+                            product.update(await product_details_extractor(page, block, i))
+
+                        price_match = re.search(r'([\d\s\xa0]+)', price)
+                        product['price'] = int(re.sub(r'[\s\xa0]', '', price_match.group(1)))
+                        products.append(ParsedProduct(**product))
+                        logger.info(
+                            f"Товар {i+1}: {name} - {price} - "
+                            f"{product.get('url')} - {product.get('image_url')}"
+                        )
+                    else:
+                        skipped_products_count += 1
+                        issues.append(ParseIssue(
+                            code=ParseIssueCode.INVALID_PRODUCT,
+                            description='Не удалось извлечь название или цену позиции',
+                            block_index=i,
+                        ))
+                        logger.warning(f"Товар {i+1}: пропущен (name={name}, price={price})")
+
+            except Exception as e:
+                logger.error(f"Ошибка при парсинге товаров: {e}")
+                return ParseResult.failure(
+                    Marketplace.OZON, ParseIssueCode.EXTRACTION_ERROR,
+                    'Не удалось получить данные страницы', authorization_lost,
+                )
+
+            # Если товары не найдены, проверяем на блокировку
+            if not products:
+                logger.info("Проверка на страницу 'нет соединения'")
+                no_connection = page.locator('div:has-text("Похоже, нет соединения")').first
+
+                if await no_connection.count() > 0:
+                    logger.warning("Обнаружена страница блокировки 'нет соединения'")
+
+                    return ParseResult(
+                        marketplace=Marketplace.OZON,
+                        status=ParseStatus.BLOCKED,
+                        authorization_lost=authorization_lost,
                     )
-                elif name and await _is_ozon_product_unavailable(block, i):
-                    variant_text = await _extract_product_variant_from_block(block, i)
-                    product = {
-                        "name": name,
-                        "price": None,
-                        "variant_text": variant_text,
-                        "unavailable": True,
-                    }
-                    products.append(product)
-                    logger.info(f"Товар {i+1}: {name} - закончился")
-                else:
-                    skipped_products_count += 1
-                    logger.warning(f"Товар {i+1}: пропущен (name={name}, price={price})")
 
-        except Exception as e:
-            logger.error(f"Ошибка при парсинге товаров: {e}")
-            return None
+            # Если товары найдены или блокировки нет — выходим из цикла
+            break
 
-        # Если товары не найдены, проверяем на блокировку
         if not products:
-            logger.info("Проверка на страницу 'нет соединения'")
-            no_connection = page.locator('div:has-text("Похоже, нет соединения")').first
+            return ParseResult.failure(
+                Marketplace.OZON, ParseIssueCode.NO_PRODUCTS,
+                'Позиции не найдены', authorization_lost,
+                detected_count=count,
+            )
 
-            if await no_connection.count() > 0:
-                logger.warning("Обнаружена страница блокировки 'нет соединения'")
-
-                if maintenance_callback:
-                    logger.warning("Активация maintenance mode после блокировки Ozon")
-                    await maintenance_callback()
-
-                return "maintenance_required"
-
-        # Если товары найдены или блокировки нет — выходим из цикла
-        break
-
-    if not products:
-        return None
-
-    if skipped_products_count > 0:
-        logger.warning(
-            f"Корзина Ozon распарсена частично: товаров={len(products)}, "
-            f"пропущено={skipped_products_count}"
+        if skipped_products_count > 0:
+            logger.warning(
+                f"Корзина Ozon распарсена частично: товаров={len(products)}, "
+                f"пропущено={skipped_products_count}"
+            )
+        return ParseResult(
+            marketplace=Marketplace.OZON,
+            status=ParseStatus.PARTIAL if skipped_products_count else ParseStatus.SUCCESS,
+            products=products,
+            detected_count=count,
+            skipped_count=skipped_products_count,
+            issues=issues,
+            authorization_lost=authorization_lost,
         )
-        return {
-            "products": products,
-            "partial": True,
-            "skipped_count": skipped_products_count,
-        }
 
-    return products
+    except Exception:
+        logger.exception('Непредвиденная ошибка парсинга OZON')
+        return ParseResult.failure(
+            Marketplace.OZON, ParseIssueCode.UNEXPECTED_ERROR,
+            'Непредвиденная ошибка получения данных', authorization_lost,
+        )
 
 
 async def _check_wildberries_block(page) -> bool:
@@ -946,9 +952,7 @@ async def scrape_wildberries_cart(
     user_id: int,
     browser_manager,
     is_refresh: bool = False,
-    maintenance_callback=None,
-    authorization_lost_callback=None,
-) -> list[dict[str, str | None]] | str | None:
+) -> ParseResult:
     """
     Парсит публичную корзину Wildberries без авторизации.
 
@@ -957,189 +961,207 @@ async def scrape_wildberries_cart(
         user_id: ID пользователя Telegram
         browser_manager: Экземпляр BrowserManager для переиспользования браузера
         is_refresh: Если True, повторно разбирает уже загруженную страницу
-        maintenance_callback: Callback для активации maintenance mode при блокировке
-        authorization_lost_callback: Callback при завершившейся сессии Wildberries
 
     Returns:
-        Список словарей с данными товаров,
-        строка "maintenance_required" при явной блокировке,
-        или None при других ошибках.
+        Типизированный результат с позициями, статусом и причинами ошибок.
     """
-    logger.info(
-        f"Начало парсинга корзины Wildberries: {url}, "
-        f"user_id: {user_id}, is_refresh: {is_refresh}"
-    )
-
+    authorization_lost = False
     try:
-        can_reuse_page = (
-            is_refresh
-            and hasattr(browser_manager, "has_cart_page")
-            and hasattr(browser_manager, "get_cart_page")
-            and browser_manager.has_cart_page(user_id, "wildberries", url)
+        logger.info(
+            f"Начало парсинга корзины Wildberries: {url}, "
+            f"user_id: {user_id}, is_refresh: {is_refresh}"
         )
-        if can_reuse_page:
-            page = await browser_manager.get_cart_page(
-                url,
-                user_id,
-                marketplace="wildberries"
+
+        try:
+            can_reuse_page = (
+                is_refresh
+                and hasattr(browser_manager, "has_cart_page")
+                and hasattr(browser_manager, "get_cart_page")
+                and browser_manager.has_cart_page(user_id, "wildberries", url)
             )
-            logger.info("Повторно используем загруженную страницу Wildberries")
-        elif hasattr(browser_manager, "open_cart_page"):
-            page = await browser_manager.open_cart_page(
-                url,
-                user_id,
-                marketplace="wildberries"
+            if can_reuse_page:
+                page = await browser_manager.get_cart_page(
+                    url,
+                    user_id,
+                    marketplace="wildberries"
+                )
+                logger.info("Повторно используем загруженную страницу Wildberries")
+            elif hasattr(browser_manager, "open_cart_page"):
+                page = await browser_manager.open_cart_page(
+                    url,
+                    user_id,
+                    marketplace="wildberries"
+                )
+            else:
+                page = await browser_manager.get_cart_page(
+                    url,
+                    user_id,
+                    marketplace="wildberries"
+                )
+        except Exception as e:
+            logger.error(f"Ошибка при работе с BrowserManager для Wildberries: {e}")
+            return ParseResult.failure(
+                Marketplace.WILDBERRIES, ParseIssueCode.BROWSER_ERROR,
+                'Не удалось открыть страницу', authorization_lost,
             )
-        else:
-            page = await browser_manager.get_cart_page(
-                url,
-                user_id,
-                marketplace="wildberries"
-            )
-    except Exception as e:
-        logger.error(f"Ошибка при работе с BrowserManager для Wildberries: {e}")
-        return None
 
-    await _human_delay()
-    await _human_like_behavior(page)
+        await _human_delay()
+        await _human_like_behavior(page)
 
-    try:
-        await page.wait_for_load_state('networkidle', timeout=10000)
-    except PlaywrightTimeoutError:
-        logger.warning("Networkidle timeout Wildberries - продолжаем парсинг")
+        try:
+            await page.wait_for_load_state('networkidle', timeout=10000)
+        except PlaywrightTimeoutError:
+            logger.warning("Networkidle timeout Wildberries - продолжаем парсинг")
 
-    Path("debug_data").absolute().mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    screenshot_path = f"debug_data/wildberries_cart_user{user_id}_{timestamp}.png"
-    await page.screenshot(path=screenshot_path)
-    logger.info(f"Скриншот корзины Wildberries сохранён: {screenshot_path}")
+        Path("debug_data").absolute().mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        screenshot_path = f"debug_data/wildberries_cart_user{user_id}_{timestamp}.png"
+        await page.screenshot(path=screenshot_path)
+        logger.info(f"Скриншот корзины Wildberries сохранён: {screenshot_path}")
 
-    if await _check_wildberries_block(page):
-        logger.error("Обнаружена блокировка Wildberries")
-        if maintenance_callback:
-            await maintenance_callback()
-        return "maintenance_required"
+        if await _check_wildberries_block(page):
+            logger.error("Обнаружена блокировка Wildberries")
+            return ParseResult(marketplace=Marketplace.WILDBERRIES, status=ParseStatus.BLOCKED)
 
-    if await _check_wildberries_logged_out(page):
-        await _report_authorization_lost(authorization_lost_callback, "Wildberries")
+        authorization_lost = await _check_wildberries_logged_out(page)
 
-    try:
-        raw_products = await page.evaluate("""
-            () => {
-                const normalize = (value) => (value || '').replace(/\\s+/g, ' ').trim();
-                const absoluteUrl = (value) => {
-                    if (!value) return null;
-                    if (value.startsWith('//')) return `https:${value}`;
-                    if (value.startsWith('/')) return `${location.origin}${value}`;
-                    return value;
-                };
-                const buildProductUrl = (imageUrl, linkUrl) => {
-                    const nmId = imageUrl?.match(/\\/part\\d+\\/(\\d+)\\/images\\//)?.[1];
-                    if (nmId) {
-                        return `https://www.wildberries.ru/catalog/${nmId}/detail.aspx`;
+        try:
+            raw_products = await page.evaluate("""
+                () => {
+                    const normalize = (value) => (value || '').replace(/\\s+/g, ' ').trim();
+                    const absoluteUrl = (value) => {
+                        if (!value) return null;
+                        if (value.startsWith('//')) return `https:${value}`;
+                        if (value.startsWith('/')) return `${location.origin}${value}`;
+                        return value;
+                    };
+                    const buildProductUrl = (imageUrl, linkUrl) => {
+                        const nmId = imageUrl?.match(/\\/part\\d+\\/(\\d+)\\/images\\//)?.[1];
+                        if (nmId) {
+                            return `https://www.wildberries.ru/catalog/${nmId}/detail.aspx`;
+                        }
+
+                        return absoluteUrl(linkUrl);
+                    };
+
+                    const shareContent = document.querySelector('.popup-share-content');
+                    const shareProducts = shareContent?.querySelector('.popup-share-products');
+                    if (!shareProducts) {
+                        return [];
                     }
 
-                    return absoluteUrl(linkUrl);
-                };
-
-                const shareContent = document.querySelector('.popup-share-content');
-                const shareProducts = shareContent?.querySelector('.popup-share-products');
-                if (!shareProducts) {
-                    return [];
-                }
-
-                const nodes = Array.from(
-                    shareProducts.querySelectorAll('[class^="productWrap--"]')
-                );
-                const products = [];
-                const seen = new Set();
-
-                for (const node of nodes) {
-                    const nameNode = node.querySelector(
-                        '[class^="productDescriptionName--"]'
+                    const nodes = Array.from(
+                        shareProducts.querySelectorAll('[class^="productWrap--"]')
                     );
-                    const lowerPriceNode = node.querySelector(
-                        '[class^="productPriceLowerPrice--"]'
-                    );
-                    const oldPriceNode = node.querySelector(
-                        '[class^="productPriceOldPrice--"]'
-                    );
-                    const linkNode = node.querySelector('a[href*="/catalog/"]');
-                    const imageNode = node.querySelector('img');
+                    const products = [];
+                    const seen = new Set();
 
-                    const name = normalize(nameNode?.textContent);
-                    const priceText = normalize(
-                        lowerPriceNode?.textContent || oldPriceNode?.textContent
-                    );
-                    const ignoredVariantTexts = new Set([name, priceText, '']);
-                    const variantText = Array.from(
-                        node.querySelectorAll(
-                            '[class*="productDescription"], [class*="productOption"], ' +
-                            '[class*="size"], [class*="color"]'
+                    for (const node of nodes) {
+                        const nameNode = node.querySelector(
+                            '[class^="productDescriptionName--"]'
+                        );
+                        const lowerPriceNode = node.querySelector(
+                            '[class^="productPriceLowerPrice--"]'
+                        );
+                        const oldPriceNode = node.querySelector(
+                            '[class^="productPriceOldPrice--"]'
+                        );
+                        const linkNode = node.querySelector('a[href*="/catalog/"]');
+                        const imageNode = node.querySelector('img');
+
+                        const name = normalize(nameNode?.textContent);
+                        const priceText = normalize(
+                            lowerPriceNode?.textContent || oldPriceNode?.textContent
+                        );
+                        const ignoredVariantTexts = new Set([name, priceText, '']);
+                        const variantText = Array.from(
+                            node.querySelectorAll(
+                                '[class*="productDescription"], [class*="productOption"], ' +
+                                '[class*="size"], [class*="color"]'
+                            )
                         )
-                    )
-                        .map((item) => normalize(item.textContent))
-                        .filter((text) => (
-                            text &&
-                            !ignoredVariantTexts.has(text) &&
-                            text.length <= 120 &&
-                            !/^\\d+\\s*шт$/i.test(text)
-                        ))
-                        .filter((text, index, items) => items.indexOf(text) === index)
-                        .join(' • ') || null;
-                    const imageUrl = absoluteUrl(
-                        imageNode?.getAttribute('data-src-pb') ||
-                        imageNode?.getAttribute('src') ||
-                        imageNode?.getAttribute('data-src') ||
-                        imageNode?.getAttribute('srcset')?.split(' ')[0]
-                    );
-                    const url = buildProductUrl(imageUrl, linkNode?.getAttribute('href'));
+                            .map((item) => normalize(item.textContent))
+                            .filter((text) => (
+                                text &&
+                                !ignoredVariantTexts.has(text) &&
+                                text.length <= 120 &&
+                                !/^\\d+\\s*шт$/i.test(text)
+                            ))
+                            .filter((text, index, items) => items.indexOf(text) === index)
+                            .join(' • ') || null;
+                        const imageUrl = absoluteUrl(
+                            imageNode?.getAttribute('data-src-pb') ||
+                            imageNode?.getAttribute('src') ||
+                            imageNode?.getAttribute('data-src') ||
+                            imageNode?.getAttribute('srcset')?.split(' ')[0]
+                        );
+                        const url = buildProductUrl(imageUrl, linkNode?.getAttribute('href'));
 
-                    if (!name || !priceText || name.length < 5) continue;
+                        if (!name || !priceText || name.length < 5) continue;
 
-                    const key = `${name}|${priceText}`;
-                    if (seen.has(key)) continue;
-                    seen.add(key);
+                        const key = `${name}|${priceText}`;
+                        if (seen.has(key)) continue;
+                        seen.add(key);
 
-                    products.push({
-                        name,
-                        price: priceText,
-                        variant_text: variantText,
-                        url,
-                        image_url: imageUrl
-                    });
+                        products.push({
+                            name,
+                            price: priceText,
+                            variant_text: variantText,
+                            url,
+                            image_url: imageUrl
+                        });
+                    }
+
+                    return products;
                 }
+            """)
+        except Exception as e:
+            logger.error(f"Ошибка при извлечении товаров Wildberries: {e}")
+            return ParseResult.failure(
+                Marketplace.WILDBERRIES, ParseIssueCode.EXTRACTION_ERROR,
+                'Не удалось получить данные страницы', authorization_lost,
+            )
 
-                return products;
+        products = []
+        for index, product in enumerate(raw_products, 1):
+            name = product.get("name")
+            price = _normalize_price(product.get("price"))
+
+            if not name or not price:
+                logger.warning(f"Товар Wildberries {index}: пропущен (name={name}, price={price})")
+                continue
+
+            normalized_product = {
+                "name": name,
+                "price": price,
+                "variant_text": product.get("variant_text"),
+                "url": _normalize_image_url(product.get("url")),
+                "image_url": _normalize_image_url(product.get("image_url")),
             }
-        """)
-    except Exception as e:
-        logger.error(f"Ошибка при извлечении товаров Wildberries: {e}")
-        return None
+            normalized_product['price'] = int(re.sub(r'\D', '', price))
+            products.append(ParsedProduct(**normalized_product))
+            logger.info(
+                f"Товар Wildberries {index}: {name} - {price} - "
+                f"{normalized_product.get('url')} - {normalized_product.get('image_url')}"
+            )
 
-    products = []
-    for index, product in enumerate(raw_products, 1):
-        name = product.get("name")
-        price = _normalize_price(product.get("price"))
-
-        if not name or not price:
-            logger.warning(f"Товар Wildberries {index}: пропущен (name={name}, price={price})")
-            continue
-
-        normalized_product = {
-            "name": name,
-            "price": price,
-            "variant_text": product.get("variant_text"),
-            "url": _normalize_image_url(product.get("url")),
-            "image_url": _normalize_image_url(product.get("image_url")),
-        }
-        products.append(normalized_product)
-        logger.info(
-            f"Товар Wildberries {index}: {name} - {price} - "
-            f"{normalized_product.get('url')} - {normalized_product.get('image_url')}"
+        if not products:
+            return ParseResult.failure(
+                Marketplace.WILDBERRIES, ParseIssueCode.NO_PRODUCTS,
+                'Позиции не найдены', authorization_lost,
+            )
+        return ParseResult(
+            marketplace=Marketplace.WILDBERRIES, status=ParseStatus.SUCCESS,
+            products=products, detected_count=len(products),
+            authorization_lost=authorization_lost,
         )
 
-    return products if products else None
+    except Exception:
+        logger.exception('Непредвиденная ошибка парсинга WILDBERRIES')
+        return ParseResult.failure(
+            Marketplace.WILDBERRIES, ParseIssueCode.UNEXPECTED_ERROR,
+            'Непредвиденная ошибка получения данных', authorization_lost,
+        )
 
 
 async def scrape_ozon_cart_with_urls(
@@ -1147,9 +1169,7 @@ async def scrape_ozon_cart_with_urls(
     user_id: int,
     browser_manager,
     is_refresh: bool = False,
-    maintenance_callback=None,
-    authorization_lost_callback=None,
-) -> list[dict[str, str | None]] | str | None:
+) -> ParseResult:
     """Парсит корзину при добавлении и извлекает URL карточек товаров."""
     return await _scrape_ozon_cart(
         url=url,
@@ -1157,8 +1177,6 @@ async def scrape_ozon_cart_with_urls(
         browser_manager=browser_manager,
         product_details_extractor=_extract_product_details_from_block,
         is_refresh=is_refresh,
-        maintenance_callback=maintenance_callback,
-        authorization_lost_callback=authorization_lost_callback,
     )
 
 
@@ -1167,17 +1185,13 @@ async def scrape_ozon_cart(
     user_id: int,
     browser_manager,
     is_refresh: bool = False,
-    maintenance_callback=None,
-    authorization_lost_callback=None,
-) -> list[dict[str, str | None]] | str | None:
+) -> ParseResult:
     """Парсит корзину при обновлении цен без открытия карточек товаров."""
     return await _scrape_ozon_cart(
         url=url,
         user_id=user_id,
         browser_manager=browser_manager,
         is_refresh=is_refresh,
-        maintenance_callback=maintenance_callback,
-        authorization_lost_callback=authorization_lost_callback,
     )
 
 
@@ -1185,9 +1199,8 @@ async def scrape_avito_product(
     url: str,
     user_id: int,
     browser_manager,
-    maintenance_callback=None,
     reuse_page: bool = False,
-) -> dict[str, str | int | None] | str | None:
+) -> ParseResult:
     """Парсит объявление Avito с возможностью повторно использовать загруженную страницу."""
     try:
         can_reuse_page = (
@@ -1218,14 +1231,12 @@ async def scrape_avito_product(
 
         if await _check_avito_deleted(page):
             logger.warning(f"Объявление Avito удалено пользователем: {url}")
-            return AVITO_DELETED_MARKER
+            return ParseResult(marketplace=Marketplace.AVITO, status=ParseStatus.DELETED)
 
         await _human_like_behavior(page)
         if await _check_avito_block(page):
             logger.warning(f"Avito заблокировал доступ к объявлению: {url}")
-            if maintenance_callback:
-                await maintenance_callback()
-            return "maintenance_required"
+            return ParseResult(marketplace=Marketplace.AVITO, status=ParseStatus.BLOCKED)
 
         data = await page.evaluate("""
             () => {
@@ -1258,26 +1269,37 @@ async def scrape_avito_product(
 
         if data.get("closed"):
             logger.warning(f"Объявление Avito снято с публикации: {url}")
-            return AVITO_CLOSED_MARKER
+            return ParseResult(marketplace=Marketplace.AVITO, status=ParseStatus.CLOSED)
 
         if data.get("unavailable"):
             logger.warning(f"Объявление Avito недоступно: {url}")
-            return None
+            return ParseResult.failure(
+                Marketplace.AVITO, ParseIssueCode.UNAVAILABLE_PAGE,
+                'Страница объявления недоступна',
+            )
 
         normalized_price = _normalize_price(data.get("price"))
         if not data.get("title") or not normalized_price:
             logger.warning(f"Avito: не удалось извлечь название или цену: {url}")
-            return None
+            return ParseResult.failure(
+                Marketplace.AVITO, ParseIssueCode.EXTRACTION_ERROR,
+                'Не удалось получить данные страницы',
+            )
 
         price = int(re.sub(r"\D", "", normalized_price))
         logger.info(f"Avito: объявление распарсено: {data['title']} - {price} ₽")
 
-        return {
-            "name": data["title"],
-            "price": price,
-            "url": url,
-            "image_url": _normalize_image_url(data.get("imageUrl")),
-        }
+        return ParseResult(
+            marketplace=Marketplace.AVITO, status=ParseStatus.SUCCESS,
+            products=[ParsedProduct(
+                name=data['title'], price=price, url=url,
+                image_url=_normalize_image_url(data.get('imageUrl')),
+            )],
+            detected_count=1,
+        )
     except Exception as e:
         logger.error(f"Ошибка при парсинге объявления Avito {url}: {e}", exc_info=True)
-        return None
+        return ParseResult.failure(
+            Marketplace.AVITO, ParseIssueCode.EXTRACTION_ERROR,
+            'Не удалось получить данные страницы',
+        )

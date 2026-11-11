@@ -1,16 +1,14 @@
 import asyncio
 import aiohttp
 import mimetypes
-import json
 import random
 import re
 from pathlib import Path
-from datetime import datetime
 from typing import Literal
+from dataclasses import dataclass
+from enum import StrEnum
 
 from utils.scraper import (
-    AVITO_CLOSED_MARKER,
-    AVITO_DELETED_MARKER,
     scrape_avito_product,
     scrape_ozon_cart,
     scrape_ozon_cart_with_urls,
@@ -18,7 +16,9 @@ from utils.scraper import (
 )
 from core.database import mark_product_not_in_cart, mark_product_in_cart
 from utils.browser_manager import BrowserAuthorizationInProgress, BrowserManager
-from core.models import Marketplace
+from core.models import Marketplace, QueueTask, QueueTaskStatus
+from core.task_repository import LegacyQueueError, TaskRepository
+from core.parsing import ParseResult, ParseStatus
 from core.database import (
     add_product,
     update_product_price,
@@ -33,6 +33,8 @@ from core.database import (
     get_product_by_url,
     has_marketplace_authorization,
     save_user_cart,
+    get_user_cart,
+    DB_PATH,
 )
 from utils.maintenance import maintenance_mode
 from loggers import logger
@@ -115,17 +117,6 @@ def _is_legacy_name_only_product(product: dict, marketplace: str) -> bool:
     name_key = _build_cart_item_key(product, marketplace)
 
     return not stored_key or stored_key == name_key
-
-
-def _unpack_cart_parse_result(result) -> tuple[list[dict], bool, int]:
-    """Возвращает товары и признак частичного парсинга корзины."""
-    if isinstance(result, dict):
-        products = result.get("products") or []
-        partial = bool(result.get("partial"))
-        skipped_count = int(result.get("skipped_count") or 0)
-        return products, partial, skipped_count
-
-    return result or [], False, 0
 
 
 def _should_use_existing_cart_page(
@@ -292,6 +283,24 @@ async def _download_product_image(
         return None
 
 
+class TaskOutcome(StrEnum):
+    """Решение воркера о следующем состоянии сохранённого задания."""
+
+    DONE = 'done'
+    DEFER = 'defer'
+    RETRY = 'retry'
+    FAILED = 'failed'
+    CANCELLED = 'cancelled'
+
+
+@dataclass
+class TaskExecution:
+    """Безопасный исход одного запуска задания."""
+
+    outcome: TaskOutcome
+    reason: str | None = None
+
+
 class TaskQueue:
     """
     Очередь задач для парсинга товаров с приоритетами и персистентностью.
@@ -301,226 +310,224 @@ class TaskQueue:
     - 2 (низкий): автоматическое обновление цен
     """
 
-    def __init__(self, bot):
+    RETRY_DELAYS = (60, 300)
+    MAINTENANCE_DELAY = 60
+    MAX_ATTEMPTS = 3
+
+    def __init__(self, bot, repository: TaskRepository | None = None):
+        """Создаёт один воркер с долговременным хранилищем заданий."""
         self.bot = bot
-        self.queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
+        self.repository = repository if repository is not None else TaskRepository(DB_PATH)
         self.running = False
+        self.accepting = False
         self.worker_task = None
-        self.counter = 0  # Счетчик для разрешения конфликтов приоритетов
-        self.browser_manager = BrowserManager()  # Менеджер браузеров для переиспользования
+        self.browser_manager = BrowserManager()
         self.queue_file = Path(config.QUEUE_FILE)
 
-    async def start(self):
-        """Запускает воркер очереди"""
+    async def start(self) -> None:
+        """Восстанавливает незавершённые задания, импортирует JSON и запускает воркер."""
         if self.running:
-            logger.warning("Воркер очереди уже запущен")
             return
-
+        await self.repository.recover_running()
+        try:
+            await self.repository.import_legacy(self.queue_file)
+        except LegacyQueueError:
+            logger.error('Ошибка переноса старой очереди; исходный файл сохранён')
+            await self._send_message(
+                config.ADMIN_USER_ID,
+                '❌ Не удалось перенести или архивировать старый файл очереди. '
+                'Исходный файл сохранён. Проверьте его на сервере.',
+            )
+        self.accepting = True
         self.running = True
-        await self._load_queue()
         self.worker_task = asyncio.create_task(self._worker())
-        logger.info("Воркер очереди запущен")
+        logger.info('Воркер очереди SQLite запущен')
 
-    async def stop(self):
-        """Останавливает воркер и сохраняет очередь"""
-        if not self.running:
-            return
-
+    async def stop(self) -> None:
+        """Закрывает приём, возвращает текущее задание и освобождает браузеры."""
+        self.accepting = False
         self.running = False
-        if self.worker_task:
-            self.worker_task.cancel()
-            try:
-                await self.worker_task
-            except asyncio.CancelledError:
-                pass
-
-        await self.browser_manager.close_all()
-        await self._save_queue()
-        logger.info("Воркер очереди остановлен")
+        try:
+            if self.worker_task:
+                self.worker_task.cancel()
+                try:
+                    await self.worker_task
+                except asyncio.CancelledError:
+                    pass
+        finally:
+            await self.browser_manager.close_all()
+        logger.info('Воркер очереди остановлен')
 
     async def add_task(
         self,
-        task_type: Literal[
-            "add_cart",
-            "add_product",
-            "update_cart",
-            "update_product",
-        ],
+        task_type: Literal['add_cart', 'add_product', 'update_cart', 'update_product'],
         url: str,
         user_id: int,
         priority: int = 2,
         marketplace: str | None = None,
         product_id: int | None = None,
-    ):
-        """
-        Добавляет задачу в очередь.
-
-        Args:
-            task_type: Тип задачи
-            url: URL товара или корзины
-            priority: Приоритет (1 - высокий, 2 - низкий)
-            user_id: ID пользователя (для add_product/add_cart/update_cart)
-            marketplace: Маркетплейс товара (для add_product/add_cart)
-            product_id: ID товара для задачи обновления отдельного товара
-        """
-        task = {
-            "type": task_type,
-            "url": url,
-            "user_id": user_id,
-            "marketplace": marketplace,
-            "product_id": product_id,
-            "added_at": datetime.now().isoformat()
-        }
-
-        # Используем кортеж (priority, counter, task) для разрешения конфликтов
-        self.counter += 1
-        await self.queue.put((priority, self.counter, task))
-        logger.info(
-            f"Задача добавлена в очередь: {task_type}, "
-            f"приоритет={priority}, очередь={self.queue.qsize()}"
+    ) -> int:
+        """Сохраняет новое задание или объединяет активный дубль до подтверждения приёма."""
+        if not self.accepting:
+            raise RuntimeError('Приём заданий очереди остановлен')
+        now = self.repository.clock()
+        marketplace = marketplace or (
+            Marketplace.AVITO if task_type in ('add_product', 'update_product')
+            else Marketplace.OZON
         )
+        task = await self.repository.enqueue(QueueTask(
+            type=task_type, url=url, user_id=user_id, marketplace=marketplace,
+            product_id=product_id, priority=priority,
+            created_at=now, updated_at=now, available_at=now,
+        ))
+        logger.info('Задание %s: статус=%s, попытка=%s', task.id, task.status, task.attempts)
+        return task.id
 
-    async def _worker(self):
-        """Воркер, обрабатывающий задачи из очереди"""
-        logger.info("Воркер начал обработку задач")
+    async def _send_message(self, *args, **kwargs) -> None:
+        """Не допускает повторного парсинга из-за ошибки доставки уведомления."""
+        try:
+            await self.bot.send_message(*args, **kwargs)
+        except Exception as error:
+            logger.error('Сообщение не доставлено: %s', type(error).__name__)
 
+    async def _is_current_task(self, task: QueueTask) -> bool:
+        """Отбрасывает обновление прежней корзины или неактивного чужого объявления."""
+        match task.type:
+            case 'update_cart':
+                return await get_user_cart(task.user_id, task.marketplace) == task.url
+            case 'update_product':
+                product = await get_product_by_url(task.user_id, task.url, task.marketplace)
+                return bool(product and product['id'] == task.product_id and product['in_cart'])
+            case _:
+                return True
+
+    async def _worker(self) -> None:
+        """Обрабатывает доступные задания без ожидания отложенной позиции в голове."""
         while self.running:
             try:
-                # Получаем задачу с наивысшим приоритетом
-                priority, counter, task = await asyncio.wait_for(
-                    self.queue.get(),
-                    timeout=1.0
-                )
-
-                # Проверяем персональный флаг и общую паузу маркетплейса
-                user_id = task.get("user_id")
-                task_marketplace = task.get("marketplace")
-                if user_id and maintenance_mode.is_active(user_id, task_marketplace):
-                    logger.warning(
-                        f"Пользователь {user_id} в режиме техработ, задача пропущена. "
-                        f"Тип: {task['type']}, маркетплейс={task_marketplace}"
-                    )
-                    await asyncio.sleep(1)
-                    continue
-
-                if user_id and self.browser_manager.is_authorization_in_progress(user_id):
-                    await self._requeue_task(priority, task)
-                    logger.info(
-                        f"Задача отложена до завершения авторизации пользователя {user_id}: "
-                        f"{task['type']}"
-                    )
-                    await asyncio.sleep(1)
-                    continue
-
-                logger.info(
-                    f"Обработка задачи: {task['type']}, "
-                    f"user_id={user_id}, "
-                    f"приоритет={priority}, осталось в очереди={self.queue.qsize()}"
-                )
-
-                await self._process_task(task)
-
-                # Рандомная задержка между задачами
-                delay = random.uniform(10, 20)
-                logger.info(f"Задержка перед следующей задачей: {delay:.2f} сек")
-                await asyncio.sleep(delay)
-
-            except BrowserAuthorizationInProgress:
-                await self._requeue_task(priority, task)
-                await asyncio.sleep(1)
-                continue
-            except asyncio.TimeoutError:
-                # Очередь пуста, ждем новых задач
-                await asyncio.sleep(1)
-                continue
-            except Exception as e:
-                logger.error(f"Ошибка в воркере очереди: {e}", exc_info=True)
-                await asyncio.sleep(5)
-
-    async def _process_task(self, task: dict):
-        """Обрабатывает одну задачу из очереди"""
-        task_type = task["type"]
-
-        try:
-            user_id = task.get("user_id")
-            if user_id:
-                async with self.browser_manager.user_browser_operation(user_id):
-                    await self._process_task_body(task)
-            else:
-                await self._process_task_body(task)
-        except BrowserAuthorizationInProgress:
-            raise
-
-        except Exception as e:
-            logger.error(f"Ошибка при обработке задачи {task_type}: {e}", exc_info=True)
-
-            if task_type in ["add_product", "add_cart"] and task["user_id"]:
+                processed = await self._run_next_task()
+                await asyncio.sleep(random.uniform(10, 20) if processed else 1)
+            except asyncio.CancelledError:
                 try:
-                    await self.bot.send_message(
-                        task["user_id"],
-                        f"❌ Ошибка при добавлении: {str(e)}"
-                    )
-                except Exception as send_error:
-                    logger.error(f"Не удалось отправить сообщение пользователю: {send_error}")
-
-    async def _process_task_body(self, task: dict) -> None:
-        """Вызывает обработчик задачи внутри защищенного профиля пользователя."""
-        task_type = task["type"]
-
-        if task_type == "add_cart":
-            await self._handle_add_cart(task)
-            return
-
-        if task_type == "update_cart":
-            await self._handle_update_cart(task)
-            return
-
-        if task_type == "add_product":
-            await self._handle_add_avito_product(task)
-            return
-
-        if task_type == "update_product":
-            await self._handle_update_avito_product(task)
-            return
-
-    async def _requeue_task(self, priority: int, task: dict) -> None:
-        """Возвращает задачу в очередь без потери исходных параметров."""
-        self.counter += 1
-        await self.queue.put((priority, self.counter, task))
-
-    async def _scrape_avito_with_retries(self, task: dict):
-        """Парсит объявление Avito с повторными попытками."""
-        for attempt in range(1, 4):
-            result = await scrape_avito_product(
-                task["url"],
-                user_id=task["user_id"],
-                browser_manager=self.browser_manager,
-                maintenance_callback=lambda: self._activate_maintenance_mode(
-                    task["user_id"],
-                    Marketplace.AVITO.value,
-                    reason="обнаружена блокировка при парсинге объявления",
-                    host_level=True,
-                ),
-                reuse_page=attempt > 1,
-            )
-            if result in (
-                "maintenance_required",
-                AVITO_CLOSED_MARKER,
-                AVITO_DELETED_MARKER,
-            ) or result:
-                return result
-            logger.warning(f"Avito: попытка парсинга {attempt}/3 не удалась")
-            if attempt < 3:
+                    await self.repository.recover_running()
+                except Exception as error:
+                    logger.error('Восстановление отложено до старта: %s', type(error).__name__)
+                raise
+            except Exception as error:
+                logger.error('Ошибка состояния очереди: %s', type(error).__name__)
+                try:
+                    await self.repository.recover_running()
+                except Exception as recovery_error:
+                    logger.error('Восстановление очереди не выполнено: %s',
+                                 type(recovery_error).__name__)
                 await asyncio.sleep(5)
 
-        await self._activate_maintenance_mode(
-            task["user_id"],
-            Marketplace.AVITO.value,
-            reason="три неудачные попытки парсинга объявления"
-        )
-        return "maintenance_required"
+    async def _run_next_task(self) -> bool:
+        """Выполняет один переход очереди с единым учётом повторов."""
+        task = await self.repository.claim()
+        if task is None:
+            return False
+        logger.info('Задание %s: pending → running, попытка=%s', task.id, task.attempts)
+        attempt_started = False
+        try:
+            if not await self._is_current_task(task):
+                execution = TaskExecution(TaskOutcome.CANCELLED, 'Обновление больше не актуально')
+            elif maintenance_mode.is_active(task.user_id, task.marketplace.value):
+                await self.repository.transition(
+                    task.id, QueueTaskStatus.PENDING, 'Активны техработы',
+                    delay=self.MAINTENANCE_DELAY,
+                )
+                logger.info('Задание %s: running → pending, попытка=%s', task.id, task.attempts)
+                return True
+            elif task.attempts >= self.MAX_ATTEMPTS:
+                execution = TaskExecution(TaskOutcome.FAILED, 'Исчерпан лимит запусков')
+            else:
+                async with self.browser_manager.user_browser_operation(task.user_id):
+                    task = await self.repository.begin_attempt(task.id)
+                    attempt_started = True
+                    execution = await self._process_task(task.model_dump(mode='json'))
+        except BrowserAuthorizationInProgress:
+            execution = TaskExecution(TaskOutcome.DEFER, 'Выполняется авторизация пользователя')
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.error('Задание %s: ошибка обработки %s', task.id, type(error).__name__)
+            execution = TaskExecution(TaskOutcome.RETRY, 'Ошибка обработки задания')
+            # Ошибка проверки до запуска тоже должна иметь ограниченный бюджет повторов.
+            if not attempt_started and task.attempts < self.MAX_ATTEMPTS:
+                task = await self.repository.begin_attempt(task.id)
 
-    async def _handle_add_avito_product(self, task: dict):
+        match execution.outcome:
+            case TaskOutcome.DONE:
+                status, delay = QueueTaskStatus.DONE, 0
+            case TaskOutcome.CANCELLED:
+                status, delay = QueueTaskStatus.CANCELLED, 0
+            case TaskOutcome.DEFER:
+                status, delay = QueueTaskStatus.PENDING, self.MAINTENANCE_DELAY
+            case TaskOutcome.RETRY if task.attempts < self.MAX_ATTEMPTS:
+                status = QueueTaskStatus.PENDING
+                delay = self.RETRY_DELAYS[task.attempts - 1]
+            case TaskOutcome.RETRY | TaskOutcome.FAILED:
+                status, delay = QueueTaskStatus.FAILED, 0
+        await self.repository.transition(
+            task.id, status, execution.reason, delay,
+            refund_attempt=attempt_started and execution.outcome == TaskOutcome.DEFER,
+        )
+        logger.info('Задание %s: running → %s, попытка=%s', task.id, status, task.attempts)
+        if status == QueueTaskStatus.FAILED:
+            if execution.outcome == TaskOutcome.RETRY:
+                await self._activate_maintenance_mode(
+                    task.user_id, task.marketplace.value,
+                    reason='три неудачные попытки обработки задания',
+                )
+            if task.type in ('add_cart', 'add_product'):
+                await self._send_message(
+                    task.user_id, '❌ Не удалось обработать добавление. Попробуйте позже.'
+                )
+        return True
+
+    async def _process_task(self, task: dict) -> TaskExecution:
+        """Получает данные один раз и возвращает явный исход без скрытых повторов."""
+        if task['type'] == 'add_product':
+            existing = await get_product_by_url(task['user_id'], task['url'], Marketplace.AVITO)
+            if existing:
+                await self._send_message(task['user_id'], 'ℹ️ Это объявление уже отслеживается.')
+                return TaskExecution(TaskOutcome.DONE)
+        if task['type'] in ('add_cart', 'update_cart'):
+            result = await self._scrape_cart(task)
+        else:
+            result = await self._scrape_avito(task)
+        match result.status:
+            case ParseStatus.BLOCKED:
+                await self._activate_maintenance_mode(
+                    task['user_id'], task['marketplace'],
+                    reason='обнаружена блокировка при парсинге', host_level=True,
+                )
+                return TaskExecution(TaskOutcome.DEFER, 'Маркетплейс заблокировал запрос')
+            case ParseStatus.ERROR:
+                outcome = TaskOutcome.RETRY if result.retryable else TaskOutcome.FAILED
+                return TaskExecution(outcome, f'Ошибка парсинга: {result.issues[0].code.value}')
+            case (ParseStatus.SUCCESS | ParseStatus.PARTIAL
+                  | ParseStatus.CLOSED | ParseStatus.DELETED):
+                match task['type']:
+                    case 'add_cart':
+                        await self._handle_add_cart(task, result)
+                    case 'update_cart':
+                        await self._handle_update_cart(task, result)
+                    case 'add_product':
+                        await self._handle_add_avito_product(task, result)
+                    case 'update_product':
+                        await self._handle_update_avito_product(task, result)
+                return TaskExecution(TaskOutcome.DONE)
+
+    async def _scrape_avito(self, task: dict) -> ParseResult:
+        """Получает объявление за один запуск парсера."""
+        return await scrape_avito_product(
+            task['url'], user_id=task['user_id'], browser_manager=self.browser_manager,
+            reuse_page=task.get('attempts', 1) > 1,
+        )
+
+    async def _handle_add_avito_product(self, task: dict, result: ParseResult):
         """Добавляет одно объявление Avito."""
         user_id = task["user_id"]
         existing_product = await get_product_by_url(
@@ -529,31 +536,32 @@ class TaskQueue:
             Marketplace.AVITO
         )
         if existing_product:
-            await self.bot.send_message(user_id, "ℹ️ Это объявление уже отслеживается.")
+            await self._send_message(user_id, "ℹ️ Это объявление уже отслеживается.")
             return
 
-        product = await self._scrape_avito_with_retries(task)
-        if product == AVITO_CLOSED_MARKER:
-            await self.bot.send_message(
-                user_id,
-                "❌ Объявление Avito снято с публикации и не может быть добавлено."
-            )
-            return
-
-        if product == AVITO_DELETED_MARKER:
-            await self.bot.send_message(
-                user_id,
-                "❌ Объявление Avito больше нельзя посмотреть: пользователь его удалил."
-            )
-            return
-
-        if not product or product == "maintenance_required":
-            if product != "maintenance_required":
-                await self.bot.send_message(
-                    user_id,
-                    "❌ Не удалось получить данные объявления Avito. Попробуйте позже."
+        match result.status:
+            case ParseStatus.CLOSED:
+                await self._send_message(
+                    user_id, '❌ Объявление Avito снято с публикации и не может быть добавлено.'
                 )
-            return
+                return
+            case ParseStatus.DELETED:
+                await self._send_message(
+                    user_id, '❌ Объявление Avito больше нельзя посмотреть: пользователь его удалил.'
+                )
+                return
+            case ParseStatus.BLOCKED:
+                return
+            case ParseStatus.ERROR:
+                if not result.retryable:
+                    await self._send_message(
+                        user_id, '❌ Не удалось получить данные объявления Avito. Попробуйте позже.'
+                    )
+                return
+            case ParseStatus.SUCCESS:
+                product = result.products[0].model_dump()
+            case ParseStatus.PARTIAL:
+                raise ValueError('Частичный результат недопустим для объявления Avito')
 
         product_id = await add_product(
             name=product["name"],
@@ -572,7 +580,7 @@ class TaskQueue:
             product_id
         )
         await update_product_image_path(product_id, image_path)
-        await self.bot.send_message(
+        await self._send_message(
             user_id,
             f"✅ Объявление добавлено!\n\n📦 {product['name']}\n💰 {product['price']} ₽"
         )
@@ -612,7 +620,7 @@ class TaskQueue:
                 f"{user_id}: {error}"
             )
 
-    async def _handle_update_avito_product(self, task: dict):
+    async def _handle_update_avito_product(self, task: dict, result: ParseResult):
         """Обновляет цену одного объявления Avito."""
         stored_product = await get_product_by_url(
             task["user_id"],
@@ -623,13 +631,12 @@ class TaskQueue:
             logger.warning("Товар Avito удалён или не принадлежит пользователю")
             return
 
-        product = await self._scrape_avito_with_retries(task)
-        if product in (AVITO_CLOSED_MARKER, AVITO_DELETED_MARKER):
+        if result.status in (ParseStatus.CLOSED, ParseStatus.DELETED):
             product_id = stored_product["id"]
 
             if stored_product["in_cart"] == 1:
                 await mark_product_not_in_cart(product_id)
-                if product == AVITO_DELETED_MARKER:
+                if result.status == ParseStatus.DELETED:
                     status_text = (
                         "❌ Объявление Avito больше нельзя посмотреть: "
                         "пользователь его удалил."
@@ -639,7 +646,7 @@ class TaskQueue:
                     status_text = "❌ Объявление Avito снято с публикации."
                     log_reason = "снято с публикации"
 
-                await self.bot.send_message(
+                await self._send_message(
                     task["user_id"],
                     f"{status_text}\n\n"
                     f"📦 {stored_product['name']}\n\n"
@@ -657,8 +664,15 @@ class TaskQueue:
 
             return
 
-        if not product or product == "maintenance_required":
-            return
+        match result.status:
+            case ParseStatus.SUCCESS:
+                product = result.products[0].model_dump()
+            case ParseStatus.BLOCKED | ParseStatus.ERROR:
+                return
+            case ParseStatus.CLOSED | ParseStatus.DELETED:
+                return
+            case ParseStatus.PARTIAL:
+                raise ValueError('Частичный результат недопустим для объявления Avito')
 
         product_id = stored_product["id"]
         settings = await get_notification_settings(task["user_id"])
@@ -687,7 +701,7 @@ class TaskQueue:
                 price_snapshot["max_price"] or product["price"],
                 product["price"]
             )
-            await self.bot.send_message(
+            await self._send_message(
                 task["user_id"],
                 "🔔 Цена снизилась!\n\n"
                 f"📦 {product['name']}\n\n"
@@ -810,22 +824,33 @@ class TaskQueue:
                 f"авторизации в {marketplace_name}: {e}"
             )
 
-    def _create_authorization_lost_callback(self, user_id: int, marketplace: str):
-        """Создает callback с одним уведомлением на задачу очереди."""
-        notification_processed = False
+    async def _scrape_cart(self, task: dict) -> ParseResult:
+        """Получает корзину за один запуск и обрабатывает завершение авторизации."""
+        marketplace = task['marketplace']
+        is_refresh = _should_use_existing_cart_page(
+            self.browser_manager, task['user_id'], marketplace, task['url'],
+            task.get('attempts', 1),
+        )
+        match marketplace:
+            case Marketplace.OZON.value:
+                parser = (scrape_ozon_cart_with_urls if task['type'] == 'add_cart'
+                          else scrape_ozon_cart)
+            case Marketplace.WILDBERRIES.value:
+                parser = scrape_wildberries_cart
+            case _:
+                raise ValueError('Неподдерживаемый маркетплейс корзины')
+        result = await parser(
+            task['url'], user_id=task['user_id'], browser_manager=self.browser_manager,
+            is_refresh=is_refresh,
+        )
+        if result.authorization_lost:
+            notify = (await self.repository.mark_authorization_notified(task['id'])
+                      if task.get('id') is not None else True)
+            if notify:
+                await self._notify_authorization_lost(task['user_id'], marketplace)
+        return result
 
-        async def authorization_lost_callback() -> None:
-            nonlocal notification_processed
-
-            if notification_processed:
-                return
-
-            notification_processed = True
-            await self._notify_authorization_lost(user_id, marketplace)
-
-        return authorization_lost_callback
-
-    async def _handle_add_cart(self, task: dict):
+    async def _handle_add_cart(self, task: dict, result: ParseResult):
         """Обрабатывает задачу добавления корзины"""
         user_id = task["user_id"]
         cart_url = task["url"]
@@ -833,107 +858,15 @@ class TaskQueue:
 
         logger.info(f"Начало обработки корзины для пользователя {user_id}")
 
-        # Парсим корзину (до 3 попыток) с использованием BrowserManager
-        cart_products = None
-        cart_parse_partial = False
-        skipped_products_count = 0
-        authorization_lost_callback = self._create_authorization_lost_callback(
-            user_id,
-            marketplace,
-        )
-        for attempt in range(1, 4):
-            logger.info(f"Попытка парсинга корзины {attempt}/3: {cart_url}")
-
-            # Определяем, нужно ли обновлять страницу или открывать новую
-            # Проверяем, есть ли уже активный браузер для этого пользователя
-            # И совпадает ли URL корзины с текущим открытым
-            is_refresh = _should_use_existing_cart_page(
-                self.browser_manager,
-                user_id,
-                marketplace,
-                cart_url,
-                attempt,
-            )
-            if marketplace == Marketplace.OZON.value and is_refresh:
-                logger.info(f"URL корзины {marketplace} совпадает, используем refresh")
-            elif marketplace == Marketplace.WILDBERRIES.value:
-                if is_refresh:
-                    logger.info("Повторно используем загруженную страницу Wildberries")
-                else:
-                    logger.info("Для Wildberries открываем сохранённый URL корзины заново")
-            else:
-                logger.info(
-                    f"URL корзины {marketplace} изменился или вкладка не открыта, "
-                    "открываем новую"
-                )
-
-            match marketplace:
-                case Marketplace.OZON.value:
-                    cart_products = await scrape_ozon_cart_with_urls(
-                        cart_url,
-                        user_id=user_id,
-                        browser_manager=self.browser_manager,
-                        is_refresh=is_refresh,
-                        maintenance_callback=lambda: self._activate_maintenance_mode(
-                            user_id,
-                            marketplace,
-                            reason="обнаружена блокировка при парсинге корзины",
-                            host_level=True,
-                        ),
-                        authorization_lost_callback=authorization_lost_callback,
-                    )
-                case Marketplace.WILDBERRIES.value:
-                    cart_products = await scrape_wildberries_cart(
-                        cart_url,
-                        user_id=user_id,
-                        browser_manager=self.browser_manager,
-                        is_refresh=is_refresh,
-                        maintenance_callback=lambda: self._activate_maintenance_mode(
-                            user_id,
-                            marketplace,
-                            reason="обнаружена блокировка при парсинге корзины",
-                            host_level=True,
-                        ),
-                        authorization_lost_callback=authorization_lost_callback,
-                    )
-                case _:
-                    logger.error(f"Неподдерживаемый маркетплейс корзины: {marketplace}")
-                    return
-
-            # Проверяем на специальный маркер maintenance_required
-            if cart_products == "maintenance_required":
-                logger.error("Получен маркер maintenance_required - прерываем попытки парсинга")
+        match result.status:
+            case ParseStatus.SUCCESS | ParseStatus.PARTIAL:
+                cart_products = [product.model_dump() for product in result.products]
+                cart_parse_partial = result.status == ParseStatus.PARTIAL
+                skipped_products_count = result.skipped_count
+            case ParseStatus.BLOCKED | ParseStatus.ERROR:
                 return
-
-            parsed_products, partial, skipped_count = _unpack_cart_parse_result(cart_products)
-            if parsed_products:
-                cart_products = parsed_products
-                cart_parse_partial = partial
-                skipped_products_count = skipped_count
-                logger.info(f"Корзина успешно спарсена: {len(cart_products)} товаров")
-                if cart_parse_partial:
-                    logger.warning(
-                        f"Корзина распарсена частично, пропущено блоков: "
-                        f"{skipped_products_count}"
-                    )
-                break
-            else:
-                logger.warning(f"Попытка {attempt} не удалась")
-                if attempt < 3:
-                    await asyncio.sleep(5)
-
-        # Если все 3 попытки провалились
-        if not cart_products:
-            logger.error(
-                f"Все 3 попытки парсинга корзины провалились для {cart_url} "
-                f"пользователя {user_id}"
-            )
-            await self._activate_maintenance_mode(
-                user_id,
-                marketplace,
-                reason="три неудачные попытки парсинга корзины"
-            )
-            return
+            case ParseStatus.CLOSED | ParseStatus.DELETED:
+                raise ValueError('Состояние объявления недопустимо для корзины')
 
         # Получаем текущие товары пользователя (включая удалённые из корзины)
         current_products = await get_all_products(
@@ -973,15 +906,7 @@ class TaskQueue:
             variant_text = cart_product.get("variant_text")
             product_unavailable = bool(cart_product.get("unavailable"))
 
-            # Извлекаем число из строки цены
-            new_price = None
-            if not product_unavailable:
-                price_match = re.search(r'([\d\s\xa0]+)', cart_product["price"])
-                if not price_match:
-                    logger.warning(f"Не удалось распарсить цену: {cart_product['price']}")
-                    continue
-
-                new_price = int(re.sub(r'[\s\xa0]', '', price_match.group(1)))
+            new_price = cart_product['price']
 
             product_url = cart_product.get("url")
             product_image_url = cart_product.get("image_url")
@@ -1118,7 +1043,7 @@ class TaskQueue:
                 if cart_item_keys[index] in added_item_keys:
                     summary += (
                         f"• {_format_product_title(cart_product)} - "
-                        f"{cart_product['price']}\n"
+                        f"{cart_product['price']} ₽\n"
                     )
 
         if restored_count > 0:
@@ -1137,14 +1062,14 @@ class TaskQueue:
                 if product["id"] in removed_product_ids:
                     summary += f"• {_format_product_title(product)}\n"
 
-        await self.bot.send_message(user_id, summary)
+        await self._send_message(user_id, summary)
         logger.info(f"Корзина успешно обработана для пользователя {user_id}")
 
         # Сохраняем ссылку на корзину в БД
         await save_user_cart(user_id, cart_url, marketplace_enum)
         logger.info(f"Ссылка на корзину сохранена для пользователя {user_id}")
 
-    async def _handle_update_cart(self, task: dict):
+    async def _handle_update_cart(self, task: dict, result: ParseResult):
         """Обрабатывает задачу обновления цен через корзину"""
         user_id = task["user_id"]
         cart_url = task["url"]
@@ -1155,107 +1080,15 @@ class TaskQueue:
             f"маркетплейс={marketplace}"
         )
 
-        # Парсим корзину (до 3 попыток) с использованием BrowserManager
-        cart_products = None
-        cart_parse_partial = False
-        skipped_products_count = 0
-        authorization_lost_callback = self._create_authorization_lost_callback(
-            user_id,
-            marketplace,
-        )
-        for attempt in range(1, 4):
-            logger.info(f"Попытка парсинга корзины {attempt}/3: {cart_url}")
-
-            # Определяем, нужно ли обновлять страницу или открывать новую
-            # Проверяем, есть ли уже активный браузер для этого пользователя
-            # И совпадает ли URL корзины с текущим открытым
-            is_refresh = _should_use_existing_cart_page(
-                self.browser_manager,
-                user_id,
-                marketplace,
-                cart_url,
-                attempt,
-            )
-            if marketplace == Marketplace.OZON.value and is_refresh:
-                logger.info(f"URL корзины {marketplace} совпадает, используем refresh")
-            elif marketplace == Marketplace.WILDBERRIES.value:
-                if is_refresh:
-                    logger.info("Повторно используем загруженную страницу Wildberries")
-                else:
-                    logger.info("Для Wildberries открываем сохранённый URL корзины заново")
-            else:
-                logger.info(
-                    f"URL корзины {marketplace} изменился или вкладка не открыта, "
-                    "открываем новую"
-                )
-
-            match marketplace:
-                case Marketplace.OZON.value:
-                    cart_products = await scrape_ozon_cart(
-                        cart_url,
-                        user_id=user_id,
-                        browser_manager=self.browser_manager,
-                        is_refresh=is_refresh,
-                        maintenance_callback=lambda: self._activate_maintenance_mode(
-                            user_id,
-                            marketplace,
-                            reason="обнаружена блокировка при парсинге корзины",
-                            host_level=True,
-                        ),
-                        authorization_lost_callback=authorization_lost_callback,
-                    )
-                case Marketplace.WILDBERRIES.value:
-                    cart_products = await scrape_wildberries_cart(
-                        cart_url,
-                        user_id=user_id,
-                        browser_manager=self.browser_manager,
-                        is_refresh=is_refresh,
-                        maintenance_callback=lambda: self._activate_maintenance_mode(
-                            user_id,
-                            marketplace,
-                            reason="обнаружена блокировка при парсинге корзины",
-                            host_level=True,
-                        ),
-                        authorization_lost_callback=authorization_lost_callback,
-                    )
-                case _:
-                    logger.error(f"Неподдерживаемый маркетплейс корзины: {marketplace}")
-                    return
-
-            # Проверяем на специальный маркер maintenance_required
-            if cart_products == "maintenance_required":
-                logger.error("Получен маркер maintenance_required - прерываем попытки парсинга")
+        match result.status:
+            case ParseStatus.SUCCESS | ParseStatus.PARTIAL:
+                cart_products = [product.model_dump() for product in result.products]
+                cart_parse_partial = result.status == ParseStatus.PARTIAL
+                skipped_products_count = result.skipped_count
+            case ParseStatus.BLOCKED | ParseStatus.ERROR:
                 return
-
-            parsed_products, partial, skipped_count = _unpack_cart_parse_result(cart_products)
-            if parsed_products:
-                cart_products = parsed_products
-                cart_parse_partial = partial
-                skipped_products_count = skipped_count
-                logger.info(f"Корзина успешно спарсена: {len(cart_products)} товаров")
-                if cart_parse_partial:
-                    logger.warning(
-                        f"Корзина распарсена частично, пропущено блоков: "
-                        f"{skipped_products_count}"
-                    )
-                break
-            else:
-                logger.warning(f"Попытка {attempt} не удалась")
-                if attempt < 3:
-                    await asyncio.sleep(5)
-
-        # Если все 3 попытки провалились
-        if not cart_products:
-            logger.error(
-                f"Все 3 попытки парсинга корзины провалились для {cart_url} "
-                f"пользователя {user_id}"
-            )
-            await self._activate_maintenance_mode(
-                user_id,
-                marketplace,
-                reason="три неудачные попытки парсинга корзины"
-            )
-            return
+            case ParseStatus.CLOSED | ParseStatus.DELETED:
+                raise ValueError('Состояние объявления недопустимо для корзины')
 
         # Получаем текущие товары пользователя из БД (включая удалённые из корзины)
         current_products = await get_all_products(
@@ -1290,14 +1123,7 @@ class TaskQueue:
             variant_text = cart_product.get("variant_text")
             product_unavailable = bool(cart_product.get("unavailable"))
 
-            new_price = None
-            if not product_unavailable:
-                price_match = re.search(r'([\d\s\xa0]+)', cart_product["price"])
-                if not price_match:
-                    logger.warning(f"Не удалось распарсить цену: {cart_product['price']}")
-                    continue
-
-                new_price = int(re.sub(r'[\s\xa0]', '', price_match.group(1)))
+            new_price = cart_product['price']
 
             # Если товар есть в БД
             existing_product = current_products_by_key.get(cart_item_key)
@@ -1514,47 +1340,3 @@ class TaskQueue:
                 f"user_id={user_id}, маркетплейс={marketplace}, ошибка={e}",
                 exc_info=True,
             )
-
-    async def _save_queue(self):
-        """Сохраняет текущую очередь на диск"""
-        try:
-            tasks = []
-            while not self.queue.empty():
-                try:
-                    priority, counter, task = self.queue.get_nowait()
-                    tasks.append({"priority": priority, "counter": counter, "task": task})
-                except asyncio.QueueEmpty:
-                    break
-
-            with open(self.queue_file, "w", encoding="utf-8") as f:
-                json.dump(tasks, f, ensure_ascii=False, indent=2)
-
-            logger.info(f"Очередь сохранена на диск: {len(tasks)} задач")
-        except Exception as e:
-            logger.error(f"Ошибка при сохранении очереди: {e}", exc_info=True)
-
-    async def _load_queue(self):
-        """Загружает очередь с диска"""
-        if not self.queue_file.exists():
-            logger.info("Файл очереди не найден, начинаем с пустой очереди")
-            return
-
-        try:
-            with open(self.queue_file, "r", encoding="utf-8") as f:
-                tasks = json.load(f)
-
-            for item in tasks:
-                priority = item["priority"]
-                counter = item.get("counter", 0)  # Для совместимости со старым форматом
-                task = item["task"]
-                await self.queue.put((priority, counter, task))
-                # Обновляем счетчик
-                if counter >= self.counter:
-                    self.counter = counter + 1
-
-            logger.info(f"Очередь загружена с диска: {len(tasks)} задач")
-
-            # Удаляем файл после загрузки
-            self.queue_file.unlink()
-        except Exception as e:
-            logger.error(f"Ошибка при загрузке очереди: {e}", exc_info=True)

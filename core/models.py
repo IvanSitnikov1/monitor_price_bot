@@ -1,6 +1,8 @@
 from enum import StrEnum
 from datetime import datetime
-from pydantic import BaseModel, Field
+from typing import Literal, Self
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class Marketplace(StrEnum):
@@ -8,6 +10,59 @@ class Marketplace(StrEnum):
     OZON = "ozon"
     WILDBERRIES = "wildberries"
     AVITO = "avito"
+
+
+class QueueTaskStatus(StrEnum):
+    """Состояние сохранённого задания очереди."""
+
+    PENDING = 'pending'
+    RUNNING = 'running'
+    DONE = 'done'
+    FAILED = 'failed'
+    CANCELLED = 'cancelled'
+
+
+class QueueTask(BaseModel):
+    """Задание очереди с состоянием и временем следующего запуска."""
+
+    id: int | None = Field(None, description='ID задания в SQLite', examples=[1])
+    type: Literal['add_cart', 'add_product', 'update_cart', 'update_product'] = Field(
+        description='Операция над корзиной или объявлением', examples=['add_cart']
+    )
+    user_id: int = Field(gt=0, strict=True, description='ID пользователя', examples=[1])
+    marketplace: Marketplace = Field(description='Маркетплейс', examples=['ozon'])
+    url: str = Field(
+        min_length=1, description='Ссылка для обработки', examples=['https://ozon.ru/']
+    )
+    product_id: int | None = Field(
+        None, gt=0, strict=True, description='ID обновляемого объявления', examples=[7]
+    )
+    priority: int = Field(2, ge=1, strict=True, description='Приоритет задания', examples=[1])
+    status: QueueTaskStatus = Field(
+        QueueTaskStatus.PENDING, description='Состояние задания', examples=['pending']
+    )
+    attempts: int = Field(0, ge=0, description='Число начатых запусков', examples=[0])
+    available_at: float = Field(description='Время доступности в секундах Unix', examples=[1.0])
+    created_at: float = Field(description='Время создания в секундах Unix', examples=[1.0])
+    updated_at: float = Field(description='Время изменения в секундах Unix', examples=[1.0])
+    last_error: str | None = Field(
+        None, description='Безопасная причина последнего переноса или ошибки', examples=['Сбой БД']
+    )
+    authorization_notified: bool = Field(
+        False, description='Событие завершения авторизации уже обработано', examples=[False]
+    )
+
+    @model_validator(mode='after')
+    def validate_target(self) -> Self:
+        """Проверяет соответствие операции маркетплейсу и объявлению."""
+        if self.type in ('add_product', 'update_product'):
+            if self.marketplace != Marketplace.AVITO:
+                raise ValueError('Отдельные объявления поддерживаются только для Avito')
+        elif self.marketplace == Marketplace.AVITO:
+            raise ValueError('Корзина Avito не поддерживается')
+        if self.type == 'update_product' and self.product_id is None:
+            raise ValueError('Для обновления объявления нужен ID товара')
+        return self
 
 
 class Product(BaseModel):

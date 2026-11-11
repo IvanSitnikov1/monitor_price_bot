@@ -5,6 +5,7 @@ from math import isfinite
 from pathlib import Path
 
 from core.models import Marketplace
+from core.task_repository import create_queue_tables
 from loggers import logger
 
 
@@ -27,6 +28,7 @@ async def _add_column_if_missing(db, table: str, column_definition: str):
 async def setup_database():
     """Создает таблицы в базе данных, если они не существуют"""
     async with aiosqlite.connect(DB_PATH) as db:
+        await create_queue_tables(db)
         # Включаем поддержку внешних ключей
         await db.execute("PRAGMA foreign_keys = ON")
 

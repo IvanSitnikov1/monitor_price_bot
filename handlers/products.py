@@ -114,7 +114,7 @@ async def process_cart_link(message: types.Message, state: FSMContext):
     user = message.from_user
     text = message.text.strip()
 
-    logger.info(f"Пользователь {user.id} отправил ссылку: {text}")
+    logger.info(f"Пользователь {user.id} отправил ссылку для обработки")
 
     # Регистрируем пользователя перед добавлением товаров (на случай, если его ещё нет)
     await register_user(user.id, user.username, user.first_name)
@@ -138,13 +138,18 @@ async def process_cart_link(message: types.Message, state: FSMContext):
 
     # Добавляем задачу в очередь с высоким приоритетом
     task_queue = message.bot.task_queue
-    await task_queue.add_task(
-        task_type="add_product" if marketplace == Marketplace.AVITO else "add_cart",
-        url=avito_url or text,
-        marketplace=marketplace.value,
-        priority=1,  # Высокий приоритет
-        user_id=user.id
-    )
+    try:
+        await task_queue.add_task(
+            task_type="add_product" if marketplace == Marketplace.AVITO else "add_cart",
+            url=avito_url or text,
+            marketplace=marketplace.value,
+            priority=1,  # Высокий приоритет
+            user_id=user.id
+        )
+    except Exception as error:
+        logger.error('Задание пользователя %s не принято: %s', user.id, type(error).__name__)
+        await message.answer('❌ Не удалось сохранить задание. Попробуйте отправить ссылку позже.')
+        return
 
     queue_message = (
         "⏳ Ссылка добавлена в очередь обработки.\n"

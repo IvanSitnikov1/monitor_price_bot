@@ -48,66 +48,48 @@ class BotStartupError(RuntimeError):
 
 
 async def _run_bot():
-    logger.info("=" * 60)
-    logger.info("Запуск бота мониторинга цен Ozon")
-    logger.info("=" * 60)
-
-    # Инициализируем базу данных
-    logger.info("Инициализация базы данных...")
-    await setup_database()
-    logger.info("База данных готова")
-
-    # Инициализируем очередь задач
-    logger.info("Инициализация очереди задач...")
+    """Запускает сервис и освобождает очередь при ошибке любого этапа запуска."""
     task_queue = TaskQueue(bot)
-    await task_queue.start()
-    logger.info("Очередь задач запущена")
-
-    # Сохраняем ссылку на очередь в bot для доступа из хендлеров
-    bot.task_queue = task_queue
-
-    # Настраиваем планировщик задач
     scheduler = AsyncIOScheduler()
-
-    for t in {7, 15, 22}:
-        scheduler.add_job(
-            schedule_price_update_with_delay,
-            trigger=CronTrigger(hour=t, minute=0),
-            args=[task_queue],
-            id=f"update_prices_{t}",
-            name=f"Обновление цен {t}",
-            replace_existing=True
-        )
-
-    scheduler.start()
-    logger.info("Планировщик задач запущен")
-
-    # Удаляем вебхуки и пропускаем старые сообщения
-    logger.info("Удаление вебхуков...")
-    await bot.delete_webhook(drop_pending_updates=True)
-
-    logger.info("Проверка актуальности reply-клавиатур...")
-    await sync_reply_keyboards(bot)
-
-    # Добавляем роутеры
-    logger.info("Регистрация обработчиков...")
-    dp.include_router(admin_router)
-    dp.include_router(products_router)
-    dp.include_router(auth_router)
-    dp.include_router(callbacks_router)
-    dp.include_router(settings_router)
-    dp.include_router(common_router)  # Последний, т.к. содержит echo-обработчик
-
-    # Запускаем опрос
-    logger.info("Бот готов к работе!")
-
     try:
-        await dp.start_polling(bot)
+        await setup_database()
+        await task_queue.start()
+        bot.task_queue = task_queue
+
+        for hour in (7, 15, 22):
+            scheduler.add_job(
+                schedule_price_update_with_delay,
+                trigger=CronTrigger(hour=hour, minute=0),
+                args=[task_queue],
+                id=f'update_prices_{hour}',
+                name=f'Обновление цен {hour}',
+                replace_existing=True,
+            )
+        scheduler.start()
+        await bot.delete_webhook(drop_pending_updates=True)
+
+        await sync_reply_keyboards(bot)
+
+        dp.include_router(admin_router)
+        dp.include_router(products_router)
+        dp.include_router(auth_router)
+        dp.include_router(callbacks_router)
+        dp.include_router(settings_router)
+        dp.include_router(common_router)
+        logger.info('Бот готов к работе')
+        await dp.start_polling(bot, close_bot_session=False)
     finally:
-        # Останавливаем очередь при завершении
-        logger.info("Остановка очереди задач...")
-        await task_queue.stop()
-        logger.info("Очередь задач остановлена")
+        task_queue.accepting = False
+        try:
+            if scheduler.running:
+                scheduler.shutdown(wait=False)
+                # AsyncIOScheduler завершает задания на следующем шаге цикла событий.
+                await asyncio.sleep(0)
+        finally:
+            try:
+                await task_queue.stop()
+            finally:
+                await bot.session.close()
 
 
 async def start_bot():
